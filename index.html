@@ -1,0 +1,2045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>BooVara Board</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+/* ── TOKENS ── */
+:root {
+  --bg: #0e1014;
+  --panel: #161920;
+  --panel2: #1c2028;
+  --panel3: #232830;
+  --border: #2a2f3a;
+  --border2: #343b48;
+  --text: #e8eaf0;
+  --dim: #6b7280;
+  --dim2: #4a5060;
+
+  --supply: #2a8c5a;
+  --supply-glow: rgba(42,140,90,.18);
+  --supply-hi: #5fd48c;
+
+  --project: #1e6fa8;
+  --project-glow: rgba(30,111,168,.18);
+  --project-hi: #4ab8f0;
+
+  --tasks: #7c3db5;
+  --tasks-glow: rgba(124,61,181,.18);
+  --tasks-hi: #b87ae0;
+
+  --notices: #b85520;
+  --notices-glow: rgba(184,85,32,.18);
+  --notices-hi: #f0844a;
+
+  --accent: #7ee8a2;
+  --accent2: #38b2e0;
+  --accent3: #f5a623;
+  --danger: #e05c5c;
+  --sel: #3b82f6;
+
+  --hdr: 56px;
+  --line-h: 44px;
+  --ruled: repeating-linear-gradient(
+    transparent 0px, transparent calc(var(--line-h) - 1px),
+    rgba(255,255,255,.05) calc(var(--line-h) - 1px), rgba(255,255,255,.05) var(--line-h)
+  );
+}
+
+/* ── RESET ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ══════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════ */
+#hdr {
+  height: var(--hdr);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 100;
+  /* KEY: touch-action none + pointer-events isolation prevents bleed */
+  touch-action: none;
+}
+#hdr::after {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3));
+  pointer-events: none;
+}
+.logo {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.logo em { color: var(--accent); font-style: normal; }
+.logo sup {
+  font-size: 9px; font-weight: 600; letter-spacing: 2px;
+  color: var(--dim); vertical-align: super; text-transform: uppercase; margin-left: 3px;
+}
+#clock {
+  font-family: 'Syne', sans-serif; font-weight: 600;
+  font-size: 14px; color: var(--dim); letter-spacing: 1px; flex-shrink: 0;
+}
+.hdr-spacer { flex: 1; }
+.hdr-btn {
+  display: flex; align-items: center; gap: 5px;
+  font-family: 'Syne', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  padding: 7px 13px; border-radius: 6px; cursor: pointer;
+  border: 1px solid transparent; white-space: nowrap; flex-shrink: 0;
+  /* Prevent touch from bleeding into canvas below */
+  touch-action: manipulation;
+}
+.hdr-btn.save { background: rgba(126,232,162,.1); border-color: rgba(126,232,162,.3); color: var(--accent); }
+.hdr-btn.save:active { background: rgba(126,232,162,.25); }
+.hdr-btn.clear { background: rgba(224,92,92,.08); border-color: rgba(224,92,92,.25); color: var(--danger); }
+.hdr-btn.clear:active { background: rgba(224,92,92,.2); }
+
+/* ══════════════════════════════════════════
+   BOARD GRID — 4 QUADRANTS
+══════════════════════════════════════════ */
+#board {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Cross dividers */
+#board::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0;
+  width: 1px; height: 100%;
+  background: var(--border2);
+  z-index: 10; pointer-events: none;
+}
+#board::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 0;
+  height: 1px; width: 100%;
+  background: var(--border2);
+  z-index: 10; pointer-events: none;
+}
+
+/* ══════════════════════════════════════════
+   QUADRANT SHELL
+══════════════════════════════════════════ */
+.quad {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Quadrant header */
+.qhdr {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px 14px 9px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  position: relative;
+  z-index: 5;
+  touch-action: none;
+  background: var(--panel);
+}
+/* Accent left-edge bar */
+.qhdr::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.quad-supply  .qhdr::before { background: var(--supply-hi); }
+.quad-project .qhdr::before { background: var(--project-hi); }
+.quad-tasks   .qhdr::before { background: var(--tasks-hi); }
+.quad-notices .qhdr::before { background: var(--notices-hi); }
+
+.qhdr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qhdr-title {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.qhdr-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.qhdr-sub {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: .3px;
+  color: var(--dim);
+  padding-left: 16px;
+}
+.qhdr-spacer { flex: 1; }
+.qadd-btn {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  touch-action: manipulation;
+  transition: all .12s;
+}
+.qadd-btn:active { opacity: .7; transform: scale(.95); }
+
+/* Color theming per quad */
+.quad-supply .qhdr-title { color: var(--supply-hi); }
+.quad-supply .qhdr-dot { background: var(--supply-hi); box-shadow: 0 0 6px var(--supply-hi); }
+.quad-supply .qadd-btn { background: var(--supply-glow); border-color: rgba(42,140,90,.35); color: var(--supply-hi); }
+
+.quad-project .qhdr-title { color: var(--project-hi); }
+.quad-project .qhdr-dot { background: var(--project-hi); box-shadow: 0 0 6px var(--project-hi); }
+.quad-project .qadd-btn { background: var(--project-glow); border-color: rgba(30,111,168,.35); color: var(--project-hi); }
+
+.quad-tasks .qhdr-title { color: var(--tasks-hi); }
+.quad-tasks .qhdr-dot { background: var(--tasks-hi); box-shadow: 0 0 6px var(--tasks-hi); }
+.quad-tasks .qadd-btn { background: var(--tasks-glow); border-color: rgba(124,61,181,.35); color: var(--tasks-hi); }
+
+.quad-notices .qhdr-title { color: var(--notices-hi); }
+.quad-notices .qhdr-dot { background: var(--notices-hi); box-shadow: 0 0 6px var(--notices-hi); }
+.quad-notices .qadd-btn { background: var(--notices-glow); border-color: rgba(184,85,32,.35); color: var(--notices-hi); }
+
+/* ══ SCROLLABLE CONTENT BODY ══ */
+.qbody {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+.qbody::-webkit-scrollbar { width: 3px; }
+.qbody::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Ruled paper lines */
+.qbody-ruled {
+  background: var(--ruled), var(--bg);
+  background-attachment: local;
+  padding: 0;
+}
+
+/* ── Item removal animation ── */
+@keyframes dissolve-up {
+  0%   { opacity: 1; transform: scaleY(1); max-height: 120px; }
+  40%  { opacity: 0; transform: scaleY(1); }
+  100% { opacity: 0; transform: scaleY(0); max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border: none; }
+}
+.removing {
+  overflow: hidden;
+  transform-origin: top;
+  animation: dissolve-up 0.32s ease forwards;
+  pointer-events: none;
+  min-height: 0 !important;
+}
+
+/* Empty state */
+.q-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  gap: 10px;
+  color: var(--dim2);
+  font-size: 12px;
+  letter-spacing: .3px;
+  text-align: center;
+  line-height: 1.6;
+}
+.q-empty svg { width: 28px; height: 28px; opacity: .35; }
+
+/* ══════════════════════════════════════════
+   SUPPLY NEEDS ITEMS
+══════════════════════════════════════════ */
+.supply-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px 9px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  transition: background .1s;
+}
+.supply-item:active { background: rgba(255,255,255,.02); }
+
+.supply-name {
+  font-size: 14px;
+  line-height: 1.35;
+  word-break: break-word;
+  cursor: pointer;
+  color: var(--text);
+}
+.supply-name.is-arrived { text-decoration: line-through; color: var(--dim); }
+
+.supply-item-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.supply-badges { display: flex; gap: 5px; align-items: center; flex: 1; }
+
+.sbadge {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: all .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* Ordered badge */
+.sbadge-ordered { background: rgba(245,166,35,.06); border-color: rgba(245,166,35,.2); color: rgba(245,166,35,.4); }
+.sbadge-ordered.active { background: rgba(245,166,35,.2); border-color: rgba(245,166,35,.6); color: #f5a623; }
+/* Arrived badge */
+.sbadge-arrived { background: rgba(126,232,162,.05); border-color: rgba(126,232,162,.15); color: rgba(126,232,162,.35); }
+.sbadge-arrived.active { background: rgba(126,232,162,.18); border-color: rgba(126,232,162,.5); color: var(--accent); }
+
+.row-del {
+  width: 24px; height: 24px;
+  border-radius: 50%; border: none;
+  background: rgba(224,92,92,.08);
+  color: rgba(224,92,92,.4);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px; flex-shrink: 0;
+  touch-action: manipulation; transition: all .12s;
+}
+.row-del:active { background: rgba(224,92,92,.35); color: #fff; }
+
+/* ══════════════════════════════════════════
+   PROJECT CODE LINES
+══════════════════════════════════════════ */
+.proj-item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 10px;
+  height: var(--line-h);
+  border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.proj-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--dim2);
+  width: 20px;
+  flex-shrink: 0;
+  letter-spacing: .3px;
+}
+.proj-text {
+  flex: 1;
+  font-size: 14px;
+  font-family: 'DM Sans', monospace;
+  color: var(--text);
+  cursor: pointer;
+  padding: 4px 4px;
+  letter-spacing: .3px;
+}
+.proj-text.empty { color: var(--dim2); font-style: italic; font-size: 13px; }
+.proj-del {
+  width: 24px; height: 24px;
+  border-radius: 50%; border: none;
+  background: rgba(224,92,92,.08);
+  color: rgba(224,92,92,.4);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px; flex-shrink: 0;
+  touch-action: manipulation; transition: all .12s;
+}
+.proj-del:active { background: rgba(224,92,92,.3); color: #fff; }
+
+/* ══════════════════════════════════════════
+   TASKS CHECKLIST
+══════════════════════════════════════════ */
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  min-height: var(--line-h);
+}
+.task-bubble {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(178,122,224,.45);
+  background: transparent;
+  flex-shrink: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .18s;
+  margin-top: 1px;
+}
+.task-bubble.done {
+  background: var(--tasks-hi);
+  border-color: var(--tasks-hi);
+  box-shadow: 0 0 8px rgba(184,122,224,.4);
+}
+.task-bubble.done::after {
+  content: '';
+  display: block;
+  width: 5px; height: 9px;
+  border-right: 2px solid #1a0a28;
+  border-bottom: 2px solid #1a0a28;
+  transform: rotate(45deg) translate(-1px,-1px);
+}
+.task-text {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+  transition: all .2s;
+  cursor: pointer;
+  padding: 1px 0;
+}
+.task-text.done {
+  text-decoration: line-through;
+  color: var(--dim);
+  opacity: .7;
+}
+.task-del {
+  width: 24px; height: 24px;
+  border-radius: 50%; border: none;
+  background: rgba(224,92,92,.08);
+  color: rgba(224,92,92,.4);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px; flex-shrink: 0;
+  touch-action: manipulation; transition: all .12s;
+  margin-top: 1px;
+}
+.task-del:active { background: rgba(224,92,92,.35); color: #fff; }
+
+/* ══════════════════════════════════════════
+   NOTICES — DRAWING QUADRANT
+══════════════════════════════════════════ */
+.quad-notices .qbody {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  background: var(--bg);
+}
+
+/* Notices sub-toolbar */
+#notices-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 5px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  touch-action: none;
+}
+#notices-toolbar::-webkit-scrollbar { display: none; }
+
+.ntbtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 4px; border: 1px solid transparent;
+  background: transparent; cursor: pointer;
+  color: var(--dim); transition: all .1s; flex-shrink: 0;
+  touch-action: manipulation;
+}
+.ntbtn svg { width: 12px; height: 12px; }
+.ntbtn:hover { background: var(--panel2); border-color: var(--border); color: var(--text); }
+.ntbtn.on { background: var(--panel3); border-color: var(--notices-hi); color: var(--notices-hi); }
+.ntbtn:active { transform: scale(.85); }
+.nt-sep { width: 1px; height: 12px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
+
+/* Color popup — fixed to viewport, JS positions it */
+#nt-color-popup {
+  display: none;
+  position: fixed;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 7px;
+  gap: 6px;
+  flex-direction: column;
+  z-index: 2000;
+  box-shadow: 0 6px 24px rgba(0,0,0,.7);
+  align-items: center;
+}
+#nt-color-popup.open { display: flex; }
+.nt-pop-swatch {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all .12s;
+  touch-action: manipulation;
+  flex-shrink: 0;
+}
+.nt-pop-swatch:hover { transform: scale(1.2); border-color: rgba(255,255,255,.5); }
+.nt-pop-swatch:active { transform: scale(.9); }
+.nt-pop-swatch.active { border-color: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.4); }
+
+input.nt-range {
+  -webkit-appearance: none;
+  width: 44px; height: 3px;
+  background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+  flex-shrink: 0;
+}
+input.nt-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px; height: 10px;
+  border-radius: 50%; background: var(--notices-hi); cursor: pointer;
+}
+.nt-rnum { font-family: 'Syne', sans-serif; font-size: 9px; color: var(--dim); width: 12px; flex-shrink: 0; }
+
+/* Canvas layers */
+#notices-wrap {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+#ink-canvas, #obj-canvas, #ui-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+#ink-canvas { background: #0e1014; pointer-events: none; }
+#obj-canvas { pointer-events: none; background: transparent; }
+/* uiC is always on top and always receives ALL pointer events — it routes them */
+#ui-canvas { touch-action: none; background: transparent; pointer-events: all; cursor: crosshair; }
+#ui-canvas.eraser-mode { cursor: cell; }
+#ui-canvas.text-mode   { cursor: text; }
+
+/* ══════════════════════════════════════════
+   STICKY NOTES (Notices quadrant only)
+══════════════════════════════════════════ */
+#sticky-layer {
+  position: absolute; inset: 0;
+  z-index: 30; pointer-events: none;
+}
+.sticky {
+  position: absolute;
+  min-width: 140px; min-height: 70px;
+  border-radius: 4px; padding: 8px 10px 10px;
+  box-shadow: 2px 3px 12px rgba(0,0,0,.25);
+  cursor: move; pointer-events: all;
+  display: flex; flex-direction: column; gap: 4px;
+  touch-action: none;
+}
+.sticky-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid rgba(0,0,0,.1); padding-bottom: 4px;
+}
+.sticky-drag { font-size: 13px; opacity: .4; cursor: move; }
+.sticky-del {
+  width: 18px; height: 18px; border-radius: 50%; border: none;
+  background: rgba(0,0,0,.12); color: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 11px; flex-shrink: 0; touch-action: manipulation;
+}
+.sticky-del:active { background: rgba(180,40,40,.4); }
+.sticky-body {
+  font-family: 'DM Sans', sans-serif; font-size: 13px;
+  line-height: 1.45; color: rgba(0,0,0,.8);
+  flex: 1; min-height: 32px; word-break: break-word; white-space: pre-wrap;
+}
+
+/* ══════════════════════════════════════════
+   INPUT MODAL
+══════════════════════════════════════════ */
+#modal-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,.65);
+  align-items: flex-start; justify-content: center;
+  padding-top: 60px;
+  touch-action: none;
+}
+#modal-overlay.on { display: flex; }
+#modal-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 20px 18px;
+  width: calc(100% - 24px);
+  max-width: 480px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.7);
+}
+.modal-title {
+  font-family: 'Syne', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 12px;
+}
+#modal-input {
+  width: 100%;
+  background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px;
+  padding: 11px 13px; resize: none; min-height: 60px; outline: none;
+  touch-action: auto; line-height: 1.4;
+}
+#modal-input:focus { border-color: var(--accent); }
+.modal-btns { display: flex; gap: 10px; margin-top: 14px; }
+.mbtn {
+  flex: 1; font-family: 'Syne', sans-serif; font-weight: 700;
+  font-size: 13px; letter-spacing: 1px; text-transform: uppercase;
+  padding: 11px; border-radius: 8px; cursor: pointer; border: none;
+  touch-action: manipulation; transition: all .15s;
+}
+.mbtn.cancel { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+.mbtn.confirm { background: var(--accent); color: #0a1a12; }
+.mbtn.confirm:active { background: #5acc80; }
+
+/* ══════════════════════════════════════════
+   KIOSK ON-SCREEN KEYBOARD
+══════════════════════════════════════════ */
+#kb-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 600;
+  background: rgba(0,0,0,.3);
+  pointer-events: none;
+  touch-action: none;
+}
+#kb-overlay.on { display: flex; }
+#kb-panel {
+  position: fixed;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%; max-width: 900px;
+  background: #15181f;
+  border: 2px solid var(--notices-hi);
+  border-radius: 16px;
+  padding: 0;
+  box-shadow: 0 10px 50px rgba(0,0,0,.8);
+  pointer-events: all;
+}
+#kb-handle {
+  background: linear-gradient(to bottom, #1e222c, #15181f);
+  border-radius: 14px 14px 0 0;
+  padding: 10px;
+  text-align: center;
+  cursor: grab;
+  border-bottom: 1px solid var(--border);
+  touch-action: none;
+  user-select: none;
+  position: relative;
+}
+#kb-handle:active { cursor: grabbing; }
+#kb-handle-icon {
+  width: 40px; height: 4px;
+  background: var(--dim);
+  border-radius: 2px;
+  margin: 0 auto 6px;
+  opacity: .5;
+}
+#kb-drag-tip {
+  position: absolute;
+  top: -32px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #0a0a0a;
+  font-family: 'Syne', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(126,232,162,.3);
+  animation: kb-tip-fade 3s ease-in-out forwards;
+  pointer-events: none;
+}
+#kb-drag-tip::after {
+  content: '';
+  position: absolute;
+  bottom: -4px; left: 50%;
+  transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--accent);
+}
+@keyframes kb-tip-fade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(-5px); }
+  10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-5px); pointer-events: none; }
+}
+#kb-content {
+  padding: 12px 12px 20px;
+}
+#kb-label {
+  font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 7px; text-align: center;
+}
+#kb-display {
+  background: #08090d; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--text); font-size: 18px; padding: 9px 13px; margin-bottom: 10px;
+  font-family: 'DM Sans', sans-serif; min-height: 44px; word-break: break-all;
+  display: flex; align-items: center; flex-wrap: wrap;
+}
+.kb-cur {
+  display: inline-block; width: 2px; height: 19px;
+  background: var(--notices-hi); margin-left: 1px;
+  animation: blink 1s step-end infinite; vertical-align: middle;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.kb-row { display: flex; gap: 4px; margin-bottom: 4px; justify-content: center; }
+.kb-row-left { justify-content: flex-start; }
+.kk {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 42px; height: 48px; border-radius: 7px;
+  background: #1e222c; border: 1px solid #2a2f3a;
+  color: var(--text); font-size: 16px; font-family: 'DM Sans', sans-serif;
+  cursor: pointer; transition: all .08s; padding: 0 4px; flex: 1; max-width: 54px;
+  touch-action: manipulation;
+}
+.kk:active { background: var(--notices-hi); color: #1a0a04; transform: scale(.92); }
+.kk.wide { max-width: 86px; flex: 1.7; font-size: 11px; }
+.kk.xwide { max-width: 180px; flex: 3.5; }
+.kk.fn { background: #181c26; color: var(--dim); font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; }
+.kk.fn:active { background: var(--panel3); color: var(--text); }
+.kk.kconfirm { background: var(--notices-hi); color: #1a0802; font-family: 'Syne', sans-serif; font-weight: 800; font-size: 12px; letter-spacing: 1px; max-width: 110px; flex: 2.2; }
+.kk.kconfirm:active { opacity: .8; }
+.kk.kcancel { background: rgba(224,92,92,.1); color: var(--danger); border-color: rgba(224,92,92,.25); font-family: 'Syne', sans-serif; font-weight: 700; font-size: 11px; max-width: 95px; flex: 2; }
+.kk.shift-hi { border-color: var(--notices-hi); color: var(--notices-hi); }
+
+/* ══════════════════════════════════════════
+   CONFIRM DIALOG
+══════════════════════════════════════════ */
+#confirm-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 700;
+  background: rgba(0,0,0,.7);
+  align-items: center; justify-content: center;
+  touch-action: none;
+}
+#confirm-overlay.on { display: flex; }
+#confirm-box {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 26px 26px 20px; max-width: 340px; width: 90%;
+  text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.7);
+}
+#confirm-box h3 { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 800; margin-bottom: 8px; }
+#confirm-box p { color: var(--dim); font-size: 13px; margin-bottom: 22px; line-height: 1.5; }
+.cfm-btns { display: flex; gap: 10px; justify-content: center; }
+.cfm-btn {
+  font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1px;
+  text-transform: uppercase; padding: 10px 22px; border-radius: 8px;
+  cursor: pointer; border: none; touch-action: manipulation;
+}
+.cfm-cancel { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+.cfm-ok { background: var(--danger); color: #fff; }
+
+/* ══════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════ */
+#toast {
+  position: fixed; bottom: 18px; left: 50%;
+  transform: translateX(-50%) translateY(60px);
+  background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+  font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: .5px;
+  padding: 10px 20px; border-radius: 8px;
+  transition: transform .28s ease; z-index: 800;
+  pointer-events: none; box-shadow: 0 4px 20px rgba(0,0,0,.5); white-space: nowrap;
+}
+#toast.on { transform: translateX(-50%) translateY(0); }
+
+/* ══════════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════════ */
+@media (max-width: 600px) {
+  :root { --hdr: 50px; --line-h: 42px; }
+  .logo sup { display: none; }
+  #clock { display: none; }
+  .hdr-btn { font-size: 10px; padding: 6px 10px; }
+  .qhdr { padding: 7px 10px 6px; }
+  .qhdr-title { font-size: 10px; letter-spacing: 1.5px; }
+  .qhdr-sub { font-size: 10px; padding-left: 14px; }
+  .qadd-btn { font-size: 9px; padding: 4px 8px; }
+  .supply-name, .proj-text, .task-text { font-size: 13px; }
+  .sbadge { font-size: 8px; padding: 2px 6px; }
+  #notices-toolbar { padding: 3px 6px; gap: 2px; }
+  .ntbtn { width: 28px; height: 28px; }
+  .ntbtn svg { width: 13px; height: 13px; }
+}
+@media (max-width: 420px) {
+  .qhdr-sub { display: none; }
+  .qt-label { display: none; }
+  .qadd-btn::before { content: '+'; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<header id="hdr">
+  <div class="logo">Boo<em>Vara</em><sup>Board</sup></div>
+  <div id="clock"></div>
+  <div class="hdr-spacer"></div>
+  <button class="hdr-btn" id="btn-print">🖨 Print</button>
+  <button class="hdr-btn clear" id="btn-clear-all">✕ Clear All</button>
+</header>
+
+<!-- ══ 4-QUADRANT BOARD ══ -->
+<div id="board">
+
+  <!-- ┌─────────────────────┐ TOP-LEFT: SUPPLY NEEDS -->
+  <div class="quad quad-supply">
+    <div class="qhdr" id="qhdr-supply">
+      <div class="qhdr-row">
+        <div class="qhdr-title">
+          <div class="qhdr-dot"></div>
+          <span class="qt-label">Supply Needs</span>
+        </div>
+        <button class="qadd-btn" id="add-supply-btn">
+          <span class="qadd-label">+ Add Item</span>
+        </button>
+      </div>
+      <div class="qhdr-sub">Track requests, ordering status &amp; arrivals</div>
+    </div>
+    <div class="qbody qbody-ruled" id="supply-body"></div>
+  </div>
+
+  <!-- ┌─────────────────────┐ TOP-RIGHT: PROJECT CODES -->
+  <div class="quad quad-project">
+    <div class="qhdr" id="qhdr-project">
+      <div class="qhdr-row">
+        <div class="qhdr-title">
+          <div class="qhdr-dot"></div>
+          <span class="qt-label">Project Codes</span>
+        </div>
+        <button class="qadd-btn" id="add-project-btn">
+          <span class="qadd-label">+ Add Code</span>
+        </button>
+      </div>
+      <div class="qhdr-sub">Billing &amp; reference codes for active projects</div>
+    </div>
+    <div class="qbody qbody-ruled" id="project-body"></div>
+  </div>
+
+  <!-- ┌─────────────────────┐ BOTTOM-LEFT: TASKS -->
+  <div class="quad quad-tasks">
+    <div class="qhdr" id="qhdr-tasks">
+      <div class="qhdr-row">
+        <div class="qhdr-title">
+          <div class="qhdr-dot"></div>
+          <span class="qt-label">Tasks</span>
+        </div>
+        <button class="qadd-btn" id="add-task-btn">
+          <span class="qadd-label">+ Add Task</span>
+        </button>
+      </div>
+      <div class="qhdr-sub">Tap the bubble to complete &amp; strike through</div>
+    </div>
+    <div class="qbody qbody-ruled" id="task-body"></div>
+  </div>
+
+  <!-- ┌─────────────────────┐ BOTTOM-RIGHT: NOTICES (drawing) -->
+  <div class="quad quad-notices" id="quad-notices">
+    <div class="qhdr" id="qhdr-notices">
+      <div class="qhdr-row">
+        <div class="qhdr-title">
+          <div class="qhdr-dot"></div>
+          <span class="qt-label">Notices</span>
+        </div>
+      </div>
+      <div class="qhdr-sub">Draw, annotate &amp; post announcements</div>
+    </div>
+
+    <!-- Mini drawing toolbar for Notices quadrant -->
+    <div id="notices-toolbar">
+      <!-- Draw tools -->
+      <button class="ntbtn on" id="nt-pen" title="Pen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </button>
+      <button class="ntbtn" id="nt-eraser" title="Eraser">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 16l10-10 7 7-2.5 2.5"/><path d="M6.5 17.5l5-5"/></svg>
+      </button>
+      <div class="nt-sep"></div>
+      <!-- Text -->
+      <button class="ntbtn" id="nt-text" title="Text">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+      </button>
+      <div class="nt-sep"></div>
+      <!-- Undo / Redo -->
+      <button class="ntbtn" id="nt-undo" title="Undo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/></svg>
+      </button>
+      <button class="ntbtn" id="nt-redo" title="Redo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 019-9 9 9 0 016 2.3L21 13"/></svg>
+      </button>
+      <div class="nt-sep"></div>
+      <!-- Single color swatch with popup -->
+      <div id="nt-color-wrap" style="position:relative;flex-shrink:0;">
+        <div id="nt-color-dot" title="Color" style="width:18px;height:18px;border-radius:50%;background:#f0f0f0;border:2px solid rgba(255,255,255,.4);cursor:pointer;touch-action:manipulation;flex-shrink:0;"></div>
+      </div>
+      <div class="nt-sep"></div>
+      <!-- Size -->
+      <input class="nt-range" type="range" id="nt-size" min="1" max="30" value="3">
+      <span class="nt-rnum" id="nt-size-num">3</span>
+      <div class="nt-sep"></div>
+      <!-- Save notices board -->
+      <button class="ntbtn" id="nt-save" title="Save board as image" style="color:var(--accent);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <!-- Clear notices -->
+      <button class="ntbtn" id="nt-clear" title="Clear board" style="color:var(--danger);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+      </button>
+    </div>
+
+    <!-- Canvas wrap (Notices only) -->
+    <div id="notices-wrap">
+      <canvas id="ink-canvas"></canvas>
+      <canvas id="obj-canvas"></canvas>
+      <canvas id="ui-canvas"></canvas>
+      <div id="sticky-layer"></div>
+    </div>
+  </div>
+
+</div><!-- #board -->
+
+<!-- ══ GENERIC INPUT MODAL ══ -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div class="modal-title" id="modal-title">Add Item</div>
+    <textarea id="modal-input" rows="2" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Type here…" autofocus></textarea>
+    <div class="modal-btns">
+      <button class="mbtn cancel" id="modal-cancel">Cancel</button>
+      <button class="mbtn confirm" id="modal-confirm">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ KIOSK KEYBOARD (large screens) ══ -->
+<div id="kb-overlay">
+  <div id="kb-panel">
+    <div id="kb-handle">
+      <div id="kb-drag-tip">Touch here to drag</div>
+      <div id="kb-handle-icon"></div>
+      <div id="kb-label">Enter text</div>
+    </div>
+    <div id="kb-content">
+      <div id="kb-display"><span id="kb-typed"></span><span class="kb-cur"></span></div>
+      <div id="kb-rows"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CONFIRM CLEAR ══ -->
+<div id="confirm-overlay">
+  <div id="confirm-box">
+    <h3>Clear All?</h3>
+    <p>This will remove all items from every section and clear the Notices board.</p>
+    <div class="cfm-btns">
+      <button class="cfm-btn cfm-cancel" id="cfm-cancel">Cancel</button>
+      <button class="cfm-btn cfm-ok" id="cfm-ok">Clear All</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════════════
+   DEVICE DETECTION
+══════════════════════════════════════════════════════ */
+const mobile = () => window.innerWidth < 680;
+
+/* ══════════════════════════════════════════════════════
+   CLOCK
+══════════════════════════════════════════════════════ */
+(function tick() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    String(n.getHours()).padStart(2,'0') + ':' + String(n.getMinutes()).padStart(2,'0');
+  setTimeout(tick, 10000);
+})();
+
+/* ══════════════════════════════════════════════════════
+   TOOLBAR TOUCH-BLEED FIX
+   Track if a touch sequence STARTED inside any toolbar /
+   header / qhdr — if so, ignore that sequence on the canvas.
+   The flag resets on touchend / touchcancel.
+══════════════════════════════════════════════════════ */
+let touchOriginatedInUI = false;
+
+function markUITouchOrigin(el) {
+  el.addEventListener('touchstart', (e) => {
+    touchOriginatedInUI = true;
+    // Don't prevent default — just mark the origin
+  }, { passive: true });
+}
+
+// Mark all UI zones that should NOT bleed into canvas
+markUITouchOrigin(document.getElementById('hdr'));
+markUITouchOrigin(document.getElementById('notices-toolbar'));
+document.querySelectorAll('.qhdr').forEach(markUITouchOrigin);
+
+document.addEventListener('touchend',    () => { touchOriginatedInUI = false; }, { passive: true });
+document.addEventListener('touchcancel', () => { touchOriginatedInUI = false; }, { passive: true });
+
+/* ══════════════════════════════════════════════════════
+   PERSISTENCE — localStorage
+══════════════════════════════════════════════════════ */
+const STORE_KEY = 'boovara_v3';
+
+function loadDB() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(_) {}
+  return { supply: [], project: [], tasks: [], notices_ink: null, notices_objs: [], notices_stickies: [] };
+}
+function saveDB() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(_) {}
+}
+
+const DB = loadDB();
+
+/* ══════════════════════════════════════════════════════
+   UTILITIES
+══════════════════════════════════════════════════════ */
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 2400);
+}
+
+/* ══════════════════════════════════════════════════════
+   GENERIC INPUT MODAL
+   On kiosk (≥680px) → on-screen keyboard
+   On mobile (<680px) → native textarea
+══════════════════════════════════════════════════════ */
+let modalCB = null;
+
+function openInput(title, placeholder, confirmLabel, cb, existing) {
+  modalCB = cb;
+  if (mobile()) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-input').placeholder = placeholder || 'Type here…';
+    document.getElementById('modal-input').value = existing || '';
+    document.getElementById('modal-confirm').textContent = confirmLabel || 'Add';
+    document.getElementById('modal-overlay').classList.add('on');
+    setTimeout(() => {
+      const input = document.getElementById('modal-input');
+      input.focus();
+      input.click(); // Trigger to ensure mobile keyboard appears
+    }, 100);
+  } else {
+    openKB(title, placeholder, confirmLabel, cb, existing);
+  }
+}
+
+document.getElementById('modal-cancel').addEventListener('click', () => {
+  document.getElementById('modal-overlay').classList.remove('on');
+});
+document.getElementById('modal-confirm').addEventListener('click', () => {
+  const val = document.getElementById('modal-input').value.trim();
+  document.getElementById('modal-overlay').classList.remove('on');
+  if (val && modalCB) modalCB(val);
+});
+
+/* ══════════════════════════════════════════════════════
+   KIOSK ON-SCREEN KEYBOARD
+══════════════════════════════════════════════════════ */
+let kbCB = null, kbText = '', kbShift = false, kbCapsLock = false, kbConfirmLabel = 'ADD';
+
+const KBL = [
+  ['`','1','2','3','4','5','6','7','8','9','0','-','='],
+  ['q','w','e','r','t','y','u','i','o','p','[',']','\\'],
+  ['a','s','d','f','g','h','j','k','l',';',"'"],
+  ['z','x','c','v','b','n','m',',','.','/'],
+];
+const KBU = [
+  ['~','!','@','#','$','%','^','&','*','(',')','_','+'],
+  ['Q','W','E','R','T','Y','U','I','O','P','{','}','|'],
+  ['A','S','D','F','G','H','J','K','L',':','"'],
+  ['Z','X','C','V','B','N','M','<','>','?'],
+];
+
+function openKB(title, ph, confirmLbl, cb, existing) {
+  kbCB = cb; kbText = existing || ''; kbShift = false;
+  kbConfirmLabel = confirmLbl || 'ADD';
+  document.getElementById('kb-label').textContent = title || 'Enter text';
+  buildKB();
+  document.getElementById('kb-typed').textContent = kbText;
+  document.getElementById('kb-overlay').classList.add('on');
+  // Reset position to center
+  const panel = document.getElementById('kb-panel');
+  panel.style.transform = 'translate(-50%, -50%)';
+  if (window.kbResetOffset) window.kbResetOffset();
+}
+function closeKB() { document.getElementById('kb-overlay').classList.remove('on'); }
+
+// ── Keyboard drag functionality ──
+(function() {
+  const panel = document.getElementById('kb-panel');
+  const handle = document.getElementById('kb-handle');
+  let isDragging = false;
+  let currentX, currentY, initialX, initialY;
+  let xOffset = 0, yOffset = 0;
+
+  window.kbResetOffset = function() {
+    xOffset = 0;
+    yOffset = 0;
+  };
+
+  function dragStart(e) {
+    if (e.type === 'touchstart') {
+      initialX = e.touches[0].clientX - xOffset;
+      initialY = e.touches[0].clientY - yOffset;
+    } else {
+      initialX = e.clientX - xOffset;
+      initialY = e.clientY - yOffset;
+    }
+    isDragging = true;
+  }
+
+  function drag(e) {
+    if (!isDragging) return;
+    e.preventDefault();
+    
+    if (e.type === 'touchmove') {
+      currentX = e.touches[0].clientX - initialX;
+      currentY = e.touches[0].clientY - initialY;
+    } else {
+      currentX = e.clientX - initialX;
+      currentY = e.clientY - initialY;
+    }
+
+    xOffset = currentX;
+    yOffset = currentY;
+    setTranslate(currentX, currentY, panel);
+  }
+
+  function dragEnd() {
+    isDragging = false;
+  }
+
+  function setTranslate(xPos, yPos, el) {
+    el.style.transform = `translate(calc(-50% + ${xPos}px), calc(-50% + ${yPos}px))`;
+  }
+
+  handle.addEventListener('mousedown', dragStart);
+  handle.addEventListener('touchstart', dragStart, {passive: false});
+  document.addEventListener('mousemove', drag);
+  document.addEventListener('touchmove', drag, {passive: false});
+  document.addEventListener('mouseup', dragEnd);
+  document.addEventListener('touchend', dragEnd);
+})();
+
+function buildKB() {
+  const rows = (kbShift || kbCapsLock) ? KBU : KBL;
+  const c = document.getElementById('kb-rows'); c.innerHTML = '';
+  
+  // Number row (row 0) with Backspace at the end
+  let d = document.createElement('div'); d.className = 'kb-row';
+  rows[0].forEach(ch => d.appendChild(mkK(ch, '', () => kbTypeChar(ch))));
+  d.appendChild(mkK('⌫', 'wide fn', () => { kbText = kbText.slice(0,-1); kbSync(); }));
+  c.appendChild(d);
+  
+  // QWERTY row (row 1)
+  d = document.createElement('div'); d.className = 'kb-row';
+  rows[1].forEach(ch => d.appendChild(mkK(ch, '', () => kbTypeChar(ch))));
+  c.appendChild(d);
+  
+  // ASDF row (row 2) with Caps Lock - left aligned to keep A in same position
+  d = document.createElement('div'); d.className = 'kb-row kb-row-left';
+  d.appendChild(mkK('⇪', 'wide fn' + (kbCapsLock ? ' shift-hi' : ''), () => { kbCapsLock = !kbCapsLock; buildKB(); }));
+  rows[2].forEach(ch => d.appendChild(mkK(ch, '', () => kbTypeChar(ch))));
+  c.appendChild(d);
+  
+  // ZXCV row (row 3) with Shift only
+  d = document.createElement('div'); d.className = 'kb-row';
+  d.appendChild(mkK('⇧', 'wide fn' + (kbShift ? ' shift-hi' : ''), () => { kbShift = !kbShift; buildKB(); }));
+  rows[3].forEach(ch => d.appendChild(mkK(ch, '', () => kbTypeChar(ch))));
+  c.appendChild(d);
+  
+  // Bottom row: Space, Enter, Cancel, Confirm
+  const bot = document.createElement('div'); bot.className = 'kb-row';
+  bot.appendChild(mkK('SPACE', 'xwide fn', () => kbTypeChar(' ')));
+  bot.appendChild(mkK('↵', 'wide fn', () => kbTypeChar('\n')));
+  bot.appendChild(mkK('CANCEL', 'wide kcancel', closeKB));
+  bot.appendChild(mkK(kbConfirmLabel, 'wide kconfirm', kbDone));
+  c.appendChild(bot);
+}
+function mkK(lbl, cls, fn) {
+  const d = document.createElement('div');
+  d.className = 'kk ' + (cls || '');
+  d.textContent = lbl;
+  d.addEventListener('click', fn);
+  d.addEventListener('touchend', e => { e.preventDefault(); fn(); });
+  return d;
+}
+function kbTypeChar(ch) {
+  kbText += ch;
+  // Turn off shift after typing a letter (but keep caps lock on)
+  if (kbShift && /[a-zA-Z]/.test(ch)) { kbShift = false; buildKB(); }
+  kbSync();
+}
+function kbSync() { document.getElementById('kb-typed').textContent = kbText; }
+function kbDone() {
+  const val = kbText.trim();
+  closeKB();
+  if (val && kbCB) kbCB(val);
+}
+
+/* ══════════════════════════════════════════════════════
+   CONFIRM DIALOG
+══════════════════════════════════════════════════════ */
+let confirmCB = null;
+function openConfirm(cb) { confirmCB = cb; document.getElementById('confirm-overlay').classList.add('on'); }
+document.getElementById('cfm-cancel').addEventListener('click', () => document.getElementById('confirm-overlay').classList.remove('on'));
+document.getElementById('cfm-ok').addEventListener('click', () => { document.getElementById('confirm-overlay').classList.remove('on'); if(confirmCB) confirmCB(); });
+
+/* ══════════════════════════════════════════════════════
+   ── SUPPLY NEEDS ──
+══════════════════════════════════════════════════════ */
+function renderSupply() {
+  const body = document.getElementById('supply-body');
+  body.innerHTML = '';
+  if (!DB.supply.length) {
+    body.innerHTML = `<div class="q-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+      Tap "+ Add Item" to log supply needs
+    </div>`;
+    return;
+  }
+  DB.supply.forEach(item => body.appendChild(mkSupplyRow(item)));
+}
+
+function mkSupplyRow(item) {
+  const el = document.createElement('div');
+  el.className = 'supply-item';
+
+  const name = document.createElement('div');
+  name.className = 'supply-name' + (item.arrived ? ' is-arrived' : '');
+  name.textContent = item.text;
+  // Tap name to edit
+  name.addEventListener('click', () => {
+    openInput('Edit Item', 'Item name…', 'Save', val => {
+      item.text = val; saveDB(); renderSupply();
+    }, item.text);
+  });
+
+  // Footer row: badges left, delete right
+  const footer = document.createElement('div');
+  footer.className = 'supply-item-footer';
+
+  const badges = document.createElement('div');
+  badges.className = 'supply-badges';
+
+  const bOrd = document.createElement('div');
+  bOrd.className = 'sbadge sbadge-ordered' + (item.ordered ? ' active' : '');
+  bOrd.textContent = 'Ordered';
+  const toggleOrdered = (e) => {
+    e.stopPropagation();
+    item.ordered = !item.ordered;
+    if (!item.ordered) item.arrived = false;
+    saveDB(); renderSupply();
+  };
+  bOrd.addEventListener('click', toggleOrdered);
+  bOrd.addEventListener('touchend', e => { e.preventDefault(); toggleOrdered(e); });
+
+  const bArr = document.createElement('div');
+  bArr.className = 'sbadge sbadge-arrived' + (item.arrived ? ' active' : '');
+  bArr.textContent = item.arrived ? '✓ Arrived' : 'Arrived';
+  const toggleArrived = (e) => {
+    e.stopPropagation();
+    if (!item.arrived && !item.ordered) item.ordered = true;
+    item.arrived = !item.arrived;
+    saveDB(); renderSupply();
+  };
+  bArr.addEventListener('click', toggleArrived);
+  bArr.addEventListener('touchend', e => { e.preventDefault(); toggleArrived(e); });
+
+  const del = document.createElement('button');
+  del.className = 'row-del'; del.textContent = '✕';
+  const doDelete = (e) => {
+    e.stopPropagation();
+    el.classList.add('removing');
+    el.addEventListener('animationend', () => {
+      DB.supply = DB.supply.filter(i => i.id !== item.id);
+      saveDB(); renderSupply();
+    }, {once:true});
+  };
+  del.addEventListener('click', doDelete);
+  del.addEventListener('touchend', e => { e.preventDefault(); doDelete(e); });
+
+  badges.append(bOrd, bArr);
+  footer.append(badges, del);
+  el.append(name, footer);
+  return el;
+}
+
+document.getElementById('add-supply-btn').addEventListener('click', () => {
+  openInput('Add Supply Item', 'e.g. Blue nitrile gloves, Box 100ct…', 'Add', val => {
+    DB.supply.push({ id: genId(), text: val, ordered: false, arrived: false });
+    saveDB(); renderSupply(); showToast('Item added');
+  });
+});
+document.getElementById('add-supply-btn').addEventListener('touchend', e => {
+  e.preventDefault();
+  openInput('Add Supply Item', 'e.g. Blue nitrile gloves, Box 100ct…', 'Add', val => {
+    DB.supply.push({ id: genId(), text: val, ordered: false, arrived: false });
+    saveDB(); renderSupply(); showToast('Item added');
+  });
+});
+
+/* ══════════════════════════════════════════════════════
+   ── PROJECT CODES ──
+══════════════════════════════════════════════════════ */
+function renderProject() {
+  const body = document.getElementById('project-body');
+  body.innerHTML = '';
+  if (!DB.project.length) {
+    body.innerHTML = `<div class="q-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 3-3 3M13 14h4"/></svg>
+      Tap "+ Add Code" to enter a project code
+    </div>`;
+    return;
+  }
+  DB.project.forEach(item => body.appendChild(mkProjRow(item)));
+}
+
+function mkProjRow(item) {
+  const el = document.createElement('div');
+  el.className = 'proj-item';
+
+  const text = document.createElement('div');
+  text.className = 'proj-text' + (!item.text ? ' empty' : '');
+  text.textContent = item.text || 'Tap to add code…';
+  const editProj = () => {
+    openInput('Edit Project Code', 'e.g. PRJ-2024-001…', 'Save', val => {
+      item.text = val; saveDB(); renderProject();
+    }, item.text);
+  };
+  text.addEventListener('click', editProj);
+  text.addEventListener('touchend', e => { e.preventDefault(); editProj(); });
+
+  const del = document.createElement('button');
+  del.className = 'proj-del'; del.textContent = '✕';
+  const doDel = (e) => {
+    e.stopPropagation();
+    el.classList.add('removing');
+    el.addEventListener('animationend', () => {
+      DB.project = DB.project.filter(i => i.id !== item.id);
+      saveDB(); renderProject();
+    }, {once:true});
+  };
+  del.addEventListener('click', doDel);
+  del.addEventListener('touchend', e => { e.preventDefault(); doDel(e); });
+
+  el.append(text, del);
+  return el;
+}
+
+document.getElementById('add-project-btn').addEventListener('click', () => {
+  openInput('Add Project Code', 'e.g. PRJ-2024-001…', 'Add', val => {
+    DB.project.push({ id: genId(), text: val });
+    saveDB(); renderProject(); showToast('Code added');
+  });
+});
+document.getElementById('add-project-btn').addEventListener('touchend', e => {
+  e.preventDefault();
+  openInput('Add Project Code', 'e.g. PRJ-2024-001…', 'Add', val => {
+    DB.project.push({ id: genId(), text: val });
+    saveDB(); renderProject(); showToast('Code added');
+  });
+});
+
+/* ══════════════════════════════════════════════════════
+   ── TASKS CHECKLIST ──
+══════════════════════════════════════════════════════ */
+function renderTasks() {
+  const body = document.getElementById('task-body');
+  body.innerHTML = '';
+  if (!DB.tasks.length) {
+    body.innerHTML = `<div class="q-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      Tap "+ Add Task" to create a checklist item
+    </div>`;
+    return;
+  }
+  DB.tasks.forEach(item => body.appendChild(mkTaskRow(item)));
+}
+
+function mkTaskRow(item) {
+  const el = document.createElement('div');
+  el.className = 'task-item';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'task-bubble' + (item.done ? ' done' : '');
+  const toggleDone = (e) => {
+    e.stopPropagation();
+    item.done = !item.done;
+    saveDB(); renderTasks();
+  };
+  bubble.addEventListener('click', toggleDone);
+  bubble.addEventListener('touchend', e => { e.preventDefault(); toggleDone(e); });
+
+  const text = document.createElement('div');
+  text.className = 'task-text' + (item.done ? ' done' : '');
+  text.textContent = item.text;
+  // Tap text to edit (only if not done)
+  const editTask = () => {
+    if (item.done) return;
+    openInput('Edit Task', 'Task description…', 'Save', val => {
+      item.text = val; saveDB(); renderTasks();
+    }, item.text);
+  };
+  text.addEventListener('click', editTask);
+  text.addEventListener('touchend', e => { e.preventDefault(); editTask(); });
+
+  const del = document.createElement('button');
+  del.className = 'task-del'; del.textContent = '✕';
+  const doDel = (e) => {
+    e.stopPropagation();
+    el.classList.add('removing');
+    el.addEventListener('animationend', () => {
+      DB.tasks = DB.tasks.filter(i => i.id !== item.id);
+      saveDB(); renderTasks();
+    }, {once:true});
+  };
+  del.addEventListener('click', doDel);
+  del.addEventListener('touchend', e => { e.preventDefault(); doDel(e); });
+
+  el.append(bubble, text, del);
+  return el;
+}
+
+document.getElementById('add-task-btn').addEventListener('click', () => {
+  openInput('Add Task', 'e.g. Restock paper towels…', 'Add', val => {
+    DB.tasks.push({ id: genId(), text: val, done: false });
+    saveDB(); renderTasks(); showToast('Task added');
+  });
+});
+document.getElementById('add-task-btn').addEventListener('touchend', e => {
+  e.preventDefault();
+  openInput('Add Task', 'e.g. Restock paper towels…', 'Add', val => {
+    DB.tasks.push({ id: genId(), text: val, done: false });
+    saveDB(); renderTasks(); showToast('Task added');
+  });
+});
+
+/* ══════════════════════════════════════════════════════
+   ── NOTICES DRAWING CANVAS ──
+══════════════════════════════════════════════════════ */
+const inkC  = document.getElementById('ink-canvas');
+const inkX  = inkC.getContext('2d');
+const objC  = document.getElementById('obj-canvas');
+const objX  = objC.getContext('2d');
+const uiC   = document.getElementById('ui-canvas');
+const uiX   = uiC.getContext('2d');
+
+const SHAPE_TOOLS = new Set(['line','rect','circle','arrow']);
+const SEL_COLOR = '#3b82f6';
+const HDL_R_DESK = 2;
+const HDL_R_MOB  = 4;
+const hdlR = () => mobile() ? HDL_R_MOB : HDL_R_DESK;
+
+let ntTool = 'pen';
+let penColor = '#f0f0f0';
+let penSize  = 3;
+let stickyColor = '#fff9c4';
+
+let drawActive = false;
+let shapeStart = null;
+let shapeSnap  = null;
+
+// Object layer
+let objs = DB.notices_objs || [];
+let selectedId = null;
+let dragState  = null;
+let tapTimer   = null, lastTapId = null, tapCount = 0;
+
+// Ink history
+let inkHistory = [];
+let inkRedo_   = [];
+
+function resizeNotices() {
+  const wrap = document.getElementById('notices-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  if (!W || !H) return;
+
+  const savedInk = inkHistory.length
+    ? null
+    : (inkC.width > 0 ? inkX.getImageData(0, 0, inkC.width, inkC.height) : null);
+
+  [inkC, objC, uiC].forEach(c => { c.width = W; c.height = H; });
+
+  // Restore ink background
+  inkX.fillStyle = '#0e1014';
+  inkX.fillRect(0, 0, W, H);
+
+  // Restore saved ink if available from DB
+  if (DB.notices_ink) {
+    const img = new Image();
+    img.onload = () => { inkX.drawImage(img, 0, 0); };
+    img.src = DB.notices_ink;
+  } else if (savedInk) {
+    inkX.putImageData(savedInk, 0, 0);
+  }
+
+  redrawObjs();
+}
+window.addEventListener('resize', resizeNotices);
+
+// ── Ink history helpers ──
+function saveInkSnap() {
+  inkHistory.push(inkC.toDataURL());
+  if (inkHistory.length > 40) inkHistory.shift();
+  inkRedo_ = [];
+}
+
+document.getElementById('nt-undo').addEventListener('click', () => {
+  if (!inkHistory.length) return;
+  inkRedo_.push(inkC.toDataURL());
+  const url = inkHistory.pop();
+  const img = new Image(); img.src = url;
+  img.onload = () => {
+    inkX.fillStyle = '#0e1014'; inkX.fillRect(0, 0, inkC.width, inkC.height);
+    inkX.drawImage(img, 0, 0);
+  };
+  showToast('Undone');
+});
+
+document.getElementById('nt-redo').addEventListener('click', () => {
+  if (!inkRedo_.length) return;
+  inkHistory.push(inkC.toDataURL());
+  const url = inkRedo_.pop();
+  const img = new Image(); img.src = url;
+  img.onload = () => {
+    inkX.fillStyle = '#0e1014'; inkX.fillRect(0, 0, inkC.width, inkC.height);
+    inkX.drawImage(img, 0, 0);
+  };
+  showToast('Redone');
+});
+
+// ── Tool buttons ──
+const NT_TOOLS = { 'nt-pen':'pen', 'nt-eraser':'eraser', 'nt-text':'text' };
+
+function setNtTool(t) {
+  if (ntTool !== t) { selectedId = null; closeColorPopup(); redrawUI(); }
+  ntTool = t;
+  Object.entries(NT_TOOLS).forEach(([id, name]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('on', name === t);
+  });
+  uiC.className = t === 'eraser' ? 'eraser-mode' : t === 'text' ? 'text-mode' : '';
+}
+
+Object.entries(NT_TOOLS).forEach(([id, name]) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', () => setNtTool(name));
+});
+
+// ── Color popup (appended to body to escape toolbar overflow clipping) ──
+const colorDot = document.getElementById('nt-color-dot');
+const SWATCH_COLORS = ['#f0f0f0','#e53e3e','#f0a500','#5fd48c','#4ab8f0','#c47ae0','#f0844a'];
+
+const colorPopup = document.createElement('div');
+colorPopup.id = 'nt-color-popup';
+SWATCH_COLORS.forEach(c => {
+  const sw = document.createElement('div');
+  sw.className = 'nt-pop-swatch' + (c === '#f0f0f0' ? ' active' : '');
+  sw.style.background = c;
+  sw.dataset.c = c;
+  sw.addEventListener('click',    e => { e.stopPropagation(); setColor(c); });
+  sw.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); setColor(c); });
+  colorPopup.appendChild(sw);
+});
+document.body.appendChild(colorPopup);
+
+function closeColorPopup() { colorPopup.classList.remove('open'); }
+
+function openColorPopup() {
+  colorPopup.classList.add('open');
+  const r  = colorDot.getBoundingClientRect();
+  const pw = colorPopup.offsetWidth  || 36;
+  const ph = colorPopup.offsetHeight || 220;
+  let left = r.left + r.width / 2 - pw / 2;
+  let top  = r.bottom + 6;
+  if (left < 4) left = 4;
+  if (left + pw > window.innerWidth - 4) left = window.innerWidth - pw - 4;
+  if (top  + ph > window.innerHeight - 4) top = r.top - ph - 6;
+  colorPopup.style.left = left + 'px';
+  colorPopup.style.top  = top  + 'px';
+}
+
+function setColor(c) {
+  penColor = c;
+  colorDot.style.background = c;
+  colorPopup.querySelectorAll('.nt-pop-swatch').forEach(s => s.classList.toggle('active', s.dataset.c === c));
+  if (selectedId) {
+    const o = getObj(selectedId);
+    if (o && o.type === 'text') { updObj(o.id, { color: c }); DB.notices_objs = objs; saveDB(); }
+  }
+  closeColorPopup();
+}
+
+colorDot.addEventListener('click', e => {
+  e.stopPropagation();
+  colorPopup.classList.contains('open') ? closeColorPopup() : openColorPopup();
+});
+colorDot.addEventListener('touchend', e => {
+  e.preventDefault(); e.stopPropagation();
+  colorPopup.classList.contains('open') ? closeColorPopup() : openColorPopup();
+});
+
+document.addEventListener('click',    e => { if (e.target !== colorDot && !colorPopup.contains(e.target)) closeColorPopup(); });
+document.addEventListener('touchend', e => { if (e.target !== colorDot && !colorPopup.contains(e.target)) closeColorPopup(); }, {passive:true});
+
+
+// ── Size slider ──
+document.getElementById('nt-size').addEventListener('input', e => {
+  penSize = parseInt(e.target.value);
+  document.getElementById('nt-size-num').textContent = penSize;
+});
+
+// ── Clear Notices board ──
+document.getElementById('nt-clear').addEventListener('click', () => {
+  inkX.fillStyle = '#0e1014';
+  inkX.fillRect(0, 0, inkC.width, inkC.height);
+  objs = []; selectedId = null; dragState = null;
+  DB.notices_ink = null; DB.notices_objs = []; DB.notices_stickies = [];
+  saveDB(); redrawObjs(); redrawUI();
+  document.getElementById('sticky-layer').innerHTML = '';
+  inkHistory = []; inkRedo_ = [];
+  showToast('Notices cleared');
+});
+
+// ── Object model ──
+function genObjId() { return 'o' + genId(); }
+function addObj(o) { o.id = genObjId(); objs.push(o); redrawObjs(); return o; }
+function getObj(id) { return objs.find(o => o.id === id) || null; }
+function updObj(id, patch) { const o = getObj(id); if (o) { Object.assign(o, patch); redrawObjs(); } }
+function delObj(id) { objs = objs.filter(o => o.id !== id); DB.notices_objs = objs; saveDB(); redrawObjs(); redrawUI(); }
+
+function measureTxt(o) {
+  objX.font = `${o.fontSize}px ${o.fontFamily}`;
+  const lines = o.text.split('\n');
+  const lh = o.fontSize * 1.38;
+  const w = Math.max(...lines.map(l => objX.measureText(l).width)) + 20;
+  const h = lines.length * lh + 12;
+  return { w, h };
+}
+
+function drawOneObj(ctx, o) {
+  ctx.save();
+  if (o.type === 'shape') {
+    ctx.strokeStyle = o.color; ctx.lineWidth = o.thickness;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
+    const t = o.shapeType;
+    if (t === 'line') { ctx.moveTo(o.x1,o.y1); ctx.lineTo(o.x2,o.y2); ctx.stroke(); }
+    else if (t === 'rect') { ctx.strokeRect(o.x1,o.y1,o.x2-o.x1,o.y2-o.y1); }
+    else if (t === 'circle') {
+      const rx=(o.x2-o.x1)/2, ry=(o.y2-o.y1)/2;
+      ctx.ellipse(o.x1+rx,o.y1+ry,Math.abs(rx),Math.abs(ry),0,0,Math.PI*2); ctx.stroke();
+    } else if (t === 'arrow') {
+      const dx=o.x2-o.x1, dy=o.y2-o.y1, ang=Math.atan2(dy,dx);
+      const hl=Math.min(28,Math.hypot(dx,dy)*.35);
+      ctx.moveTo(o.x1,o.y1); ctx.lineTo(o.x2,o.y2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(o.x2,o.y2); ctx.lineTo(o.x2-hl*Math.cos(ang-Math.PI/6),o.y2-hl*Math.sin(ang-Math.PI/6));
+      ctx.moveTo(o.x2,o.y2); ctx.lineTo(o.x2-hl*Math.cos(ang+Math.PI/6),o.y2-hl*Math.sin(ang+Math.PI/6));
+      ctx.stroke();
+    }
+  } else if (o.type === 'text') {
+    const m = measureTxt(o); o._w = m.w; o._h = m.h;
+    const lh = o.fontSize * 1.38;
+    ctx.font = `${o.fontSize}px ${o.fontFamily}`;
+    ctx.fillStyle = o.color; ctx.textBaseline = 'top';
+    o.text.split('\n').forEach((ln, i) => ctx.fillText(ln, o.x + 10, o.y + 6 + i * lh));
+  }
+  ctx.restore();
+}
+
+function redrawObjs() {
+  objX.clearRect(0, 0, objC.width, objC.height);
+  objs.forEach(o => drawOneObj(objX, o));
+  redrawUI();
+}
+
+// ── Selection UI ──
+function bbox(o) {
+  if (o.type === 'shape') return { x1:Math.min(o.x1,o.x2), y1:Math.min(o.y1,o.y2), x2:Math.max(o.x1,o.x2), y2:Math.max(o.y1,o.y2) };
+  return { x1:o.x, y1:o.y, x2:o.x+(o._w||100), y2:o.y+(o._h||40) };
+}
+
+function handles(o) {
+  if (o.type === 'shape') {
+    const t = o.shapeType;
+    if (t === 'line' || t === 'arrow') return [{x:o.x1,y:o.y1,i:0},{x:o.x2,y:o.y2,i:1}];
+    const b = bbox(o), mx=(b.x1+b.x2)/2, my=(b.y1+b.y2)/2;
+    return [{x:b.x1,y:b.y1,i:0},{x:mx,y:b.y1,i:1},{x:b.x2,y:b.y1,i:2},
+            {x:b.x2,y:my,i:3},{x:b.x2,y:b.y2,i:4},{x:mx,y:b.y2,i:5},
+            {x:b.x1,y:b.y2,i:6},{x:b.x1,y:my,i:7}];
+  }
+  const m = measureTxt(o); o._w=m.w; o._h=m.h;
+  const {x,y,_w:w,_h:h}=o, mx=x+w/2, my=y+h/2;
+  return [{x,y,i:0},{x:mx,y,i:1},{x:x+w,y,i:2},{x:x+w,y:my,i:3},
+          {x:x+w,y:y+h,i:4},{x:mx,y:y+h,i:5},{x,y:y+h,i:6},{x,y:my,i:7}];
+}
+
+function redrawUI() {
+  uiX.clearRect(0, 0, uiC.width, uiC.height);
+  if (!selectedId) return;
+  const o = getObj(selectedId); if (!o) return;
+  const b = bbox(o);
+  uiX.save();
+  uiX.strokeStyle = SEL_COLOR; uiX.lineWidth = 1.5; uiX.setLineDash([5,4]);
+  uiX.strokeRect(b.x1-7, b.y1-7, (b.x2-b.x1)+14, (b.y2-b.y1)+14);
+  uiX.setLineDash([]);
+  const r = hdlR();
+  handles(o).forEach(h => {
+    uiX.beginPath(); uiX.arc(h.x,h.y,r,0,Math.PI*2);
+    uiX.fillStyle='#fff'; uiX.fill();
+    uiX.strokeStyle=SEL_COLOR; uiX.lineWidth=2; uiX.stroke();
+  });
+  // Delete btn
+  uiX.beginPath(); uiX.arc(b.x2+16,b.y1-16,14,0,Math.PI*2);
+  uiX.fillStyle='#e05c5c'; uiX.fill();
+  uiX.fillStyle='#fff'; uiX.font='bold 14px sans-serif'; uiX.textAlign='center'; uiX.textBaseline='middle';
+  uiX.fillText('✕', b.x2+16, b.y1-16);
+  // Edit btn (text only)
+  if (o.type === 'text') {
+    uiX.beginPath(); uiX.arc(b.x1-16,b.y1-16,14,0,Math.PI*2);
+    uiX.fillStyle='#2563eb'; uiX.fill();
+    uiX.fillStyle='#fff'; uiX.font='bold 12px sans-serif'; uiX.textAlign='center'; uiX.textBaseline='middle';
+    uiX.fillText('✎', b.x1-16, b.y1-16);
+  }
+  uiX.restore();
+}
+
+// ── Hit testing ──
+function hitHandle(o, px, py) {
+  const r = hdlR() * 2;
+  for (const h of handles(o)) if (Math.hypot(px-h.x,py-h.y) <= r) return h;
+  return null;
+}
+function hitDel(o, px, py) { const b=bbox(o); return Math.hypot(px-(b.x2+16),py-(b.y1-16)) <= 18; }
+function hitEdit(o, px, py) { if(o.type!=='text')return false; const b=bbox(o); return Math.hypot(px-(b.x1-16),py-(b.y1-16)) <= 18; }
+function hitBody(o, px, py) {
+  const PAD = mobile() ? 14 : 8;
+  if (o.type === 'text') { const m=measureTxt(o); o._w=m.w; o._h=m.h; return px>=o.x-PAD&&px<=o.x+o._w+PAD&&py>=o.y-PAD&&py<=o.y+o._h+PAD; }
+  const t = o.shapeType;
+  if (t==='line'||t==='arrow') return distSeg(px,py,o.x1,o.y1,o.x2,o.y2) < Math.max(PAD,o.thickness+4);
+  const b=bbox(o); return px>=b.x1-PAD&&px<=b.x2+PAD&&py>=b.y1-PAD&&py<=b.y2+PAD;
+}
+function hitAny(px, py) { for(let i=objs.length-1;i>=0;i--) if(hitBody(objs[i],px,py)) return objs[i]; return null; }
+function distSeg(px,py,ax,ay,bx,by) {
+  const dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy;
+  if(!l2) return Math.hypot(px-ax,py-ay);
+  const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/l2));
+  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+}
+
+// ── All canvas interaction via uiC ──
+let lx=0, ly=0;
+
+function selStart(e) {
+  if (touchOriginatedInUI) return;
+  const p = canvasPt(e, uiC);
+
+  // Text tool: open input (unless tapping existing text)
+  if (ntTool === 'text') {
+    const hit = hitAny(p.x, p.y);
+    if (!hit) { e.preventDefault(); openTextInput('new', p); return; }
+  }
+
+  // Check buttons/handles on selected object first
+  const sel = selectedId ? getObj(selectedId) : null;
+  if (sel) {
+    if (hitDel(sel,p.x,p.y))  { e.preventDefault(); delObj(sel.id); selectedId=null; redrawUI(); showToast('Deleted'); return; }
+    if (hitEdit(sel,p.x,p.y)) { e.preventDefault(); openTextInput('edit',p,sel); return; }
+    const h = hitHandle(sel,p.x,p.y);
+    if (h) { e.preventDefault(); dragState={mode:'handle',hIdx:h.i,ox:p.x,oy:p.y,snap:{...sel}}; return; }
+    if (hitBody(sel,p.x,p.y)) { e.preventDefault(); handleTxtTap(sel,p); return; }
+    selectedId = null; dragState = null; redrawUI();
+  }
+
+  // Try to select a text object
+  const hit = hitAny(p.x, p.y);
+  if (hit) { e.preventDefault(); selectedId=hit.id; const m=measureTxt(hit); hit._w=m.w; hit._h=m.h; handleTxtTap(hit,p); return; }
+
+  // Nothing hit — draw ink or erase
+  if (ntTool === 'pen' || ntTool === 'eraser') {
+    e.preventDefault();
+    selectedId = null; redrawUI();
+    saveInkSnap(); drawActive = true;
+    lx = p.x; ly = p.y;
+    inkX.beginPath(); inkX.moveTo(lx, ly);
+  }
+}
+
+function selMove(e) {
+  if (touchOriginatedInUI) return;
+  // Dragging a text object
+  if (dragState && selectedId) {
+    e.preventDefault();
+    const p = canvasPt(e, uiC);
+    const o = getObj(selectedId); if (!o) return;
+    const {mode, hIdx, ox, oy, snap} = dragState;
+    const dx = p.x-ox, dy = p.y-oy;
+    if (mode === 'move') { updObj(o.id, {x:snap.x+dx, y:snap.y+dy}); }
+    else { applyHandle(o, hIdx, p, snap); }
+    return;
+  }
+  // Drawing ink
+  if (drawActive) {
+    e.preventDefault();
+    const p = canvasPt(e, uiC);
+    inkX.strokeStyle = ntTool==='eraser' ? '#0e1014' : penColor;
+    inkX.lineWidth   = ntTool==='eraser' ? penSize*5 : penSize;
+    inkX.lineCap = 'round'; inkX.lineJoin = 'round';
+    inkX.lineTo(p.x, p.y); inkX.stroke();
+    inkX.beginPath(); inkX.moveTo(p.x, p.y);
+  }
+}
+
+function selEnd() {
+  if (drawActive) {
+    drawActive = false;
+    inkX.beginPath();
+    DB.notices_ink = inkC.toDataURL(); saveDB();
+  }
+  if (dragState && selectedId) { DB.notices_objs = objs; saveDB(); }
+  dragState = null;
+}
+
+function applyHandle(o, hIdx, p, snap) {
+  if (o.type==='shape') {
+    const t=o.shapeType;
+    if (t==='line'||t==='arrow') {
+      if(hIdx===0) updObj(o.id,{x1:p.x,y1:p.y}); else updObj(o.id,{x2:p.x,y2:p.y});
+    } else {
+      let{x1,y1,x2,y2}=snap;
+      if(hIdx===0){x1=p.x;y1=p.y;}else if(hIdx===1){y1=p.y;}else if(hIdx===2){x2=p.x;y1=p.y;}
+      else if(hIdx===3){x2=p.x;}else if(hIdx===4){x2=p.x;y2=p.y;}else if(hIdx===5){y2=p.y;}
+      else if(hIdx===6){x1=p.x;y2=p.y;}else if(hIdx===7){x1=p.x;}
+      updObj(o.id,{x1,y1,x2,y2});
+    }
+  } else if (o.type==='text') {
+    let{x,y,fontSize:fs}=snap; const m=measureTxt(snap); const w=m.w,h=m.h;
+    if ([0,2,4,6].includes(hIdx)) {
+      let nw=w,nh=h;
+      if(hIdx===0){nw=x+w-p.x;nh=y+h-p.y;x=p.x;y=p.y;}
+      else if(hIdx===2){nw=p.x-x;nh=y+h-p.y;y=p.y;}
+      else if(hIdx===4){nw=p.x-x;nh=p.y-y;}
+      else if(hIdx===6){nw=x+w-p.x;nh=p.y-y;x=p.x;}
+      fs=Math.max(10,Math.round(fs*Math.max(nw/w,nh/h)));
+      updObj(o.id,{x,y,fontSize:fs});
+    } else {
+      if(hIdx===1){y=p.y;}else if(hIdx===7){x=p.x;}
+      updObj(o.id,{x,y});
+    }
+  }
+}
+
+function handleTxtTap(o, p) {
+  clearTimeout(tapTimer);
+  if (lastTapId===o.id) {
+    tapCount++;
+    if (tapCount>=2) { tapCount=0; lastTapId=null; openTextInput('edit',p,o); return; }
+  } else { tapCount=1; lastTapId=o.id; }
+  selectedId=o.id;
+  const m=measureTxt(o); o._w=m.w; o._h=m.h;
+  dragState={mode:'move',ox:p.x,oy:p.y,snap:{...o}};
+  redrawUI();
+  tapTimer=setTimeout(()=>{ tapCount=0; lastTapId=null; },450);
+}
+
+uiC.addEventListener('mousedown',  selStart);
+uiC.addEventListener('mousemove',  selMove);
+uiC.addEventListener('mouseup',    selEnd);
+uiC.addEventListener('mouseleave', selEnd);
+uiC.addEventListener('touchstart', e => { if(!touchOriginatedInUI) selStart(e); }, {passive:false});
+uiC.addEventListener('touchmove',  e => { if(!touchOriginatedInUI) selMove(e);  }, {passive:false});
+uiC.addEventListener('touchend',   selEnd);
+
+
+// ── Text input for Notices canvas ──
+let txtMode=null, txtPos=null, txtEditObj=null;
+// Font/size for canvas text (fixed sensible defaults; no UI needed in compact toolbar)
+const CANVAS_FONT = "'DM Sans'";
+let   CANVAS_FONTSIZE = 18;
+
+function openTextInput(mode, pos, editObj) {
+  txtMode=mode; txtPos=pos||{x:40,y:40}; txtEditObj=editObj||null;
+  const existing = editObj ? editObj.text : '';
+  openInput(
+    mode==='edit' ? 'Edit Text' : 'Add Text',
+    'Type here…',
+    mode==='edit' ? 'Save' : 'Place',
+    val => {
+      if(mode==='edit' && editObj) {
+        updObj(editObj.id,{text:val});
+        const o=getObj(editObj.id); if(o){const m=measureTxt(o);o._w=m.w;o._h=m.h;}
+        redrawObjs(); DB.notices_objs=objs; saveDB(); showToast('Text updated');
+      } else {
+        const o={type:'text',x:txtPos.x,y:txtPos.y,text:val,color:penColor,fontFamily:CANVAS_FONT,fontSize:CANVAS_FONTSIZE};
+        const m=measureTxt(o);o._w=m.w;o._h=m.h;
+        addObj(o); selectedId=o.id;
+        DB.notices_objs=objs; saveDB(); redrawUI();
+        showToast('Tap text to select · tap color to recolor');
+      }
+    },
+    existing
+  );
+}
+
+// ── Sticky Notes ──
+function renderStickies() {
+  const layer = document.getElementById('sticky-layer');
+  layer.innerHTML = '';
+  (DB.notices_stickies||[]).forEach(n => mkStickyEl(n, layer));
+}
+function placeSticky(text, pos) {
+  const note = {id:genId(), x:pos?pos.x:40, y:pos?pos.y:40, text, color:stickyColor};
+  DB.notices_stickies.push(note);
+  saveDB(); renderStickies(); showToast('Sticky note added');
+}
+function mkStickyEl(note, layer) {
+  const el=document.createElement('div'); el.className='sticky';
+  el.style.left=note.x+'px'; el.style.top=note.y+'px'; el.style.background=note.color;
+  el.innerHTML=`<div class="sticky-hdr"><span class="sticky-drag">⠿</span>
+    <button class="sticky-del">✕</button></div>
+    <div class="sticky-body">${note.text.replace(/</g,'&lt;')}</div>`;
+  el.querySelector('.sticky-del').addEventListener('click', e=>{
+    e.stopPropagation(); DB.notices_stickies=DB.notices_stickies.filter(n=>n.id!==note.id);
+    el.remove(); saveDB();
+  });
+  let dd=false,ox=0,oy=0;
+  const ds=e=>{dd=true;const t=e.touches?e.touches[0]:e;ox=t.clientX-el.offsetLeft;oy=t.clientY-el.offsetTop;el.style.zIndex=90;};
+  const dm=e=>{if(!dd)return;e.stopPropagation();const t=e.touches?e.touches[0]:e;
+    const nx=t.clientX-ox,ny=t.clientY-oy;el.style.left=nx+'px';el.style.top=ny+'px';note.x=nx;note.y=ny;};
+  const de=()=>{dd=false;el.style.zIndex='';saveDB();};
+  el.addEventListener('mousedown',ds); el.addEventListener('touchstart',ds,{passive:true});
+  window.addEventListener('mousemove',dm); window.addEventListener('touchmove',dm,{passive:false});
+  window.addEventListener('mouseup',de); window.addEventListener('touchend',de);
+  layer.appendChild(el);
+}
+
+// ── Save Notices board as image ──
+document.getElementById('nt-save').addEventListener('click', () => {
+  const exp=document.createElement('canvas');
+  exp.width=inkC.width; exp.height=inkC.height;
+  const ec=exp.getContext('2d');
+  ec.drawImage(inkC,0,0); ec.drawImage(objC,0,0);
+  (DB.notices_stickies||[]).forEach(note=>{
+    const lines=note.text.split('\n'); const h=Math.max(70,lines.length*20+36);
+    ec.fillStyle=note.color; ec.shadowColor='rgba(0,0,0,.2)'; ec.shadowBlur=6; ec.shadowOffsetY=2;
+    ec.beginPath(); ec.roundRect(note.x,note.y,180,h,4); ec.fill();
+    ec.shadowColor='transparent'; ec.fillStyle='rgba(0,0,0,.75)'; ec.font='13px sans-serif'; ec.textBaseline='top';
+    lines.forEach((ln,i)=>ec.fillText(ln,note.x+9,note.y+32+i*20));
+  });
+  const a=document.createElement('a'); a.href=exp.toDataURL('image/png');
+  a.download=`BooVara-Notices-${Date.now()}.png`; a.click(); showToast('Notices board saved!');
+});
+
+// ── Print ──
+document.getElementById('btn-print').addEventListener('click', () => {
+  window.print();
+});
+
+// ── Clear ALL ──
+document.getElementById('btn-clear-all').addEventListener('click', () => {
+  openConfirm(() => {
+    DB.supply=[]; DB.project=[]; DB.tasks=[];
+    DB.notices_ink=null; DB.notices_objs=[]; DB.notices_stickies=[];
+    objs=[]; selectedId=null; inkHistory=[]; inkRedo_=[];
+    inkX.fillStyle='#0e1014'; inkX.fillRect(0,0,inkC.width,inkC.height);
+    redrawObjs(); renderStickies();
+    renderSupply(); renderProject(); renderTasks();
+    saveDB(); showToast('All sections cleared');
+  });
+});
+
+/* ══════════════════════════════════════════════════════
+   CANVAS POINT HELPER
+══════════════════════════════════════════════════════ */
+function canvasPt(e, target) {
+  const r = target.getBoundingClientRect();
+  const src = e.touches?.length ? e.touches[0] : e.changedTouches?.length ? e.changedTouches[0] : e;
+  return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+
+/* ══════════════════════════════════════════════════════
+   INITIAL RENDER
+══════════════════════════════════════════════════════ */
+renderSupply();
+renderProject();
+renderTasks();
+
+// Init canvas after layout settles
+requestAnimationFrame(() => {
+  setTimeout(() => {
+    resizeNotices();
+    renderStickies();
+    setNtTool('pen');
+  }, 100);
+});
+</script>
+</body>
+</html>
