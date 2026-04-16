@@ -117,6 +117,16 @@ body {
 .hdr-btn.save:active { background: rgba(126,232,162,.25); }
 .hdr-btn.clear { background: rgba(224,92,92,.08); border-color: rgba(224,92,92,.25); color: var(--danger); }
 .hdr-btn.clear:active { background: rgba(224,92,92,.2); }
+#sync-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: #555; transition: background .3s;
+  cursor: default; align-self: center;
+  title: 'Airtable sync';
+}
+#sync-dot.syncing { background: #f0a500; animation: sync-pulse 1s ease-in-out infinite; }
+#sync-dot.ok      { background: #5fd48c; }
+#sync-dot.error   { background: #e05c5c; cursor: pointer; }
+@keyframes sync-pulse { 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
 
 /* ══════════════════════════════════════════
    BOARD GRID — 4 QUADRANTS
@@ -320,6 +330,20 @@ body {
 }
 .supply-name.is-arrived { text-decoration: line-through; color: var(--dim); }
 
+.supply-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.supply-thumb {
+  width: 46px;
+  height: 46px;
+  border-radius: 5px;
+  object-fit: contain;
+  background: rgba(255,255,255,.06);
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,.07);
+}
 .supply-item-footer {
   display: flex;
   align-items: center;
@@ -345,6 +369,9 @@ body {
 /* Ordered badge */
 .sbadge-ordered { background: rgba(245,166,35,.06); border-color: rgba(245,166,35,.2); color: rgba(245,166,35,.4); }
 .sbadge-ordered.active { background: rgba(245,166,35,.2); border-color: rgba(245,166,35,.6); color: #f5a623; }
+/* Shipped badge */
+.sbadge-shipped { background: rgba(74,184,240,.05); border-color: rgba(74,184,240,.15); color: rgba(74,184,240,.35); }
+.sbadge-shipped.active { background: rgba(74,184,240,.15); border-color: rgba(74,184,240,.5); color: #4ab8f0; }
 /* Arrived badge */
 .sbadge-arrived { background: rgba(126,232,162,.05); border-color: rgba(126,232,162,.15); color: rgba(126,232,162,.35); }
 .sbadge-arrived.active { background: rgba(126,232,162,.18); border-color: rgba(126,232,162,.5); color: var(--accent); }
@@ -361,8 +388,61 @@ body {
 .row-del:active { background: rgba(224,92,92,.35); color: #fff; }
 
 /* ══════════════════════════════════════════
-   PROJECT CODE LINES
+   PROJECT CARDS GRID (auto-synced)
 ══════════════════════════════════════════ */
+.proj-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px;
+}
+.proj-card {
+  background: rgba(255,255,255,.04);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.07);
+  transition: background .15s, border-color .15s;
+  cursor: pointer;
+}
+.proj-card:hover  { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.13); }
+.proj-card:active { background: rgba(255,255,255,.11); }
+.proj-card-label {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  color: var(--project-hi);
+  padding: 6px 8px 4px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.proj-card-thumb {
+  position: relative;
+  width: 100%;
+  padding-bottom: 66%;
+  background: rgba(255,255,255,.03);
+  overflow: hidden;
+}
+.proj-card-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity .2s;
+}
+.proj-card-thumb--empty {
+  font-size: 10px;
+  color: var(--dim2);
+}
+.proj-card-thumb--empty span {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+}
+
+/* Manual project code rows (unchanged) */
 .proj-item {
   display: flex;
   align-items: center;
@@ -373,11 +453,9 @@ body {
 }
 .proj-num {
   font-family: 'Syne', sans-serif;
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 9px; font-weight: 700;
   color: var(--dim2);
-  width: 20px;
-  flex-shrink: 0;
+  width: 20px; flex-shrink: 0;
   letter-spacing: .3px;
 }
 .proj-text {
@@ -400,6 +478,102 @@ body {
   touch-action: manipulation; transition: all .12s;
 }
 .proj-del:active { background: rgba(224,92,92,.3); color: #fff; }
+
+/* ── Project Image Lightbox ── */
+.proj-lb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.84);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.proj-lb-box {
+  background: #1a1d24;
+  border-radius: 14px;
+  width: min(94vw, 780px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 28px 90px rgba(0,0,0,.75);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.proj-lb-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--project-hi);
+  flex-shrink: 0;
+  gap: 10px;
+}
+.proj-lb-hdr span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-lb-close {
+  background: rgba(255,255,255,.08);
+  border: none; color: var(--text);
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background .12s;
+}
+.proj-lb-close:hover { background: rgba(255,255,255,.18); }
+.proj-lb-main {
+  flex: 1; min-height: 0;
+  width: 100%; max-height: 430px;
+  object-fit: contain;
+  background: #0e1014;
+  display: block;
+}
+.proj-lb-strip {
+  display: flex;
+  gap: 8px;
+  padding: 11px 14px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  background: rgba(0,0,0,.28);
+  scrollbar-width: thin;
+}
+.proj-lb-sthumb {
+  flex-shrink: 0;
+  position: relative;
+  width: 76px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,.1);
+  cursor: pointer;
+  transition: border-color .12s;
+}
+.proj-lb-sthumb:hover   { border-color: rgba(255,255,255,.35); }
+.proj-lb-sthumb.is-cover { border-color: var(--project-hi); }
+.proj-lb-sthumb.is-active { border-color: rgba(255,255,255,.6); }
+.proj-lb-sthumb img {
+  width: 100%; display: block;
+  aspect-ratio: 3/2; object-fit: cover;
+}
+.proj-lb-cover-btn {
+  position: absolute;
+  top: 3px; right: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.6);
+  border: none; color: #f9c74f;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1;
+  transition: background .12s, transform .12s;
+}
+.proj-lb-cover-btn:hover { background: rgba(0,0,0,.9); transform: scale(1.15); }
 
 /* ══════════════════════════════════════════
    TASKS CHECKLIST
@@ -462,6 +636,41 @@ body {
   margin-top: 1px;
 }
 .task-del:active { background: rgba(224,92,92,.35); color: #fff; }
+
+/* ── Task order status (Amazon sync) ── */
+.task-content { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.task-order-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.tbadge {
+  font-family: 'Syne', sans-serif;
+  font-size: 8px; font-weight: 700;
+  letter-spacing: .8px; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 20px;
+  border: 1px solid transparent;
+  cursor: pointer; touch-action: manipulation;
+  transition: all .15s; white-space: nowrap; flex-shrink: 0;
+}
+.tbadge-ordered   { background: rgba(245,166,35,.15); border-color: rgba(245,166,35,.5); color: #f5a623; }
+.tbadge-shipped   { background: rgba(74,184,240,.15); border-color: rgba(74,184,240,.5); color: #4ab8f0; }
+.tbadge-delivered { background: rgba(95,212,140,.15); border-color: rgba(95,212,140,.5); color: #5fd48c; }
+.task-link-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 4px;
+  background: rgba(74,184,240,.1); border: 1px solid rgba(74,184,240,.3);
+  color: #4ab8f0; font-size: 9px; text-decoration: none; flex-shrink: 0;
+  transition: all .15s;
+}
+.task-link-btn:hover { background: rgba(74,184,240,.28); border-color: rgba(74,184,240,.6); }
+/* Sync Amazon button in Supply header */
+.sync-amazon-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px; font-weight: 500;
+  padding: 4px 9px; border-radius: 6px;
+  background: rgba(42,140,90,.12); border: 1px solid rgba(42,140,90,.35);
+  color: var(--supply-hi); cursor: pointer; touch-action: manipulation;
+  transition: all .15s; white-space: nowrap;
+}
+.sync-amazon-btn:active { background: rgba(42,140,90,.3); }
+.sync-amazon-btn.syncing { opacity: .55; pointer-events: none; }
 
 /* ══════════════════════════════════════════
    NOTICES — DRAWING QUADRANT
@@ -826,6 +1035,7 @@ input.nt-range::-webkit-slider-thumb {
   <div class="logo">Boo<em>Vara</em><sup>Board</sup></div>
   <div id="clock"></div>
   <div class="hdr-spacer"></div>
+  <div id="sync-dot" title="Airtable sync: idle"></div>
   <button class="hdr-btn" id="btn-print">🖨 Print</button>
   <button class="hdr-btn clear" id="btn-clear-all">✕ Clear All</button>
 </header>
@@ -841,9 +1051,12 @@ input.nt-range::-webkit-slider-thumb {
           <div class="qhdr-dot"></div>
           <span class="qt-label">Supply Needs</span>
         </div>
-        <button class="qadd-btn" id="add-supply-btn">
-          <span class="qadd-label">+ Add Item</span>
-        </button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="sync-amazon-btn" id="sync-amzn-btn">&#x21BB; Sync Amazon</button>
+          <button class="qadd-btn" id="add-supply-btn">
+            <span class="qadd-label">+ Add Item</span>
+          </button>
+        </div>
       </div>
       <div class="qhdr-sub">Track requests, ordering status &amp; arrivals</div>
     </div>
@@ -1043,8 +1256,366 @@ function loadDB() {
   } catch(_) {}
   return { supply: [], project: [], tasks: [], notices_ink: null, notices_objs: [], notices_stickies: [] };
 }
+// ── Airtable Sync Config ────────────────────────────────────────────────────
+// AT_TOKEN is loaded at startup from /api/config (Vercel env var AT_ACCESS_TOKEN).
+// Never hardcode the token here — it would be exposed in the HTML source.
+let AT_TOKEN = '';
+const AT_BASE         = 'app5la8omfQHS9pvf';
+const AT_TID          = 'tblMcvsvQg5vRgwgG'; // "BV Board" table ID
+const AT_PROJ_TID     = 'tblUul2v9r4QZQj0a'; // "Projects" table — source for QB Codes
+const AT_AMZN_TID     = 'tblvyFpFAmyt5qDDN'; // "Amazon Orders" table
+const AT_URL          = `https://api.airtable.com/v0/${AT_BASE}/${AT_TID}`;
+const AT_SNAPSHOT_REC = 'recXTLodSlq3SPYmC'; // dedicated "Notices Snapshot" record
+const AT_ATTACH_FID   = 'flddFx9yRPR2w20Cx'; // "Attachment" field ID
+
+// ── Sync dot UI ──────────────────────────────────────────────────────────────
+let _lastSyncErr = '';
+function setSyncDot(state, msg) {
+  const el = document.getElementById('sync-dot');
+  if (!el) return;
+  el.className = state;
+  const labels = { '': 'Airtable sync: idle', syncing: 'Airtable sync: syncing…', ok: 'Airtable sync: up to date', error: 'Airtable sync error — click for details' };
+  el.title = labels[state] || state;
+  if (state === 'error') { _lastSyncErr = msg || ''; el.onclick = () => alert('Airtable sync error:\n' + _lastSyncErr); }
+  else el.onclick = null;
+}
+
+// ── HTTP helper ──────────────────────────────────────────────────────────────
+async function atFetch(method, path, body) {
+  const res = await fetch(AT_URL + (path || ''), {
+    method,
+    headers: { 'Authorization': `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`${method} ${path} → ${res.status}: ${t}`); }
+  return res.json();
+}
+
+// ── Serialise local item → Airtable fields ───────────────────────────────────
+function toAtFields(item, section) {
+  const now = new Date().toISOString();
+  if (!item._updatedAt) item._updatedAt = now;
+  const f = {
+    Section:   section,
+    LocalID:   item.id,
+    Text:      item.text || '',
+    Name:      (item.text || item.shapeType || section).slice(0, 60),
+    UpdatedAt: item._updatedAt,
+  };
+  if (section === 'supply') { f.Ordered = !!item.ordered; f.Shipped = !!item.shipped; f.Arrived = !!item.arrived; }
+  if (section === 'task')   { f.Done = !!item.done; }
+  if (section === 'sticky') { f.Color = item.color || ''; f.PosX = item.x || 0; f.PosY = item.y || 0; }
+  if (section === 'canvas') {
+    f.Color = item.color || ''; f.PosX = item.x ?? item.x1 ?? 0; f.PosY = item.y ?? item.y1 ?? 0;
+    if (item.type === 'text')  { f.FontFamily = item.fontFamily || ''; f.FontSize = item.fontSize || 0; }
+    if (item.type === 'shape') { f.X2 = item.x2 || 0; f.Y2 = item.y2 || 0; f.ShapeType = item.shapeType || ''; f.Thickness = item.thickness || 0; }
+    f.Name = (item.text || item.shapeType || 'canvas').slice(0, 60);
+  }
+  return f;
+}
+
+// ── Deserialise Airtable record → local item ─────────────────────────────────
+function fromAtRecord(rec, section) {
+  const f = rec.fields;
+  const item = { id: f.LocalID, text: f.Text || '', _airtableId: rec.id, _updatedAt: f.UpdatedAt || '' };
+  if (section === 'supply') { item.ordered = !!f.Ordered; item.shipped = !!f.Shipped; item.arrived = !!f.Arrived; }
+  if (section === 'task')   { item.done = !!f.Done; }
+  if (section === 'sticky') { item.color = f.Color || '#f0f0f0'; item.x = f.PosX || 0; item.y = f.PosY || 0; }
+  if (section === 'canvas') {
+    item.color = f.Color || '#f0f0f0'; item.type = f.ShapeType ? 'shape' : 'text';
+    if (item.type === 'text')  { item.x = f.PosX || 0; item.y = f.PosY || 0; item.fontFamily = f.FontFamily || "'DM Sans'"; item.fontSize = f.FontSize || 18; }
+    if (item.type === 'shape') { item.x1 = f.PosX || 0; item.y1 = f.PosY || 0; item.x2 = f.X2 || 0; item.y2 = f.Y2 || 0; item.shapeType = f.ShapeType || 'line'; item.thickness = f.Thickness || 2; }
+  }
+  return item;
+}
+
+// ── Section key mapping ──────────────────────────────────────────────────────
+const AT_SECTION_MAP = [
+  { key: 'supply',          section: 'supply'  },
+  { key: 'project',         section: 'project' },
+  { key: 'tasks',           section: 'task'    },
+  { key: 'notices_stickies',section: 'sticky'  },
+  { key: 'notices_objs',    section: 'canvas'  },
+];
+
+// ── Fetch all Airtable records (handles pagination) ──────────────────────────
+async function atGetAll() {
+  let records = [], offset = null;
+  do {
+    const qs = offset ? `?offset=${encodeURIComponent(offset)}` : '';
+    const data = await atFetch('GET', qs);
+    records.push(...(data.records || []));
+    offset = data.offset || null;
+  } while (offset);
+  return records;
+}
+
+// ── Batch PATCH / POST (max 10 per request) ───────────────────────────────────
+async function atBatchCreate(fieldsList) {
+  const ids = [];
+  for (let i = 0; i < fieldsList.length; i += 10) {
+    const batch = fieldsList.slice(i, i + 10).map(f => ({ fields: f.fields }));
+    const res = await atFetch('POST', '', { records: batch });
+    ids.push(...res.records.map((r, j) => ({ idx: fieldsList[i + j].idx, recId: r.id })));
+  }
+  return ids;
+}
+async function atBatchUpdate(updates) {
+  for (let i = 0; i < updates.length; i += 10) {
+    const batch = updates.slice(i, i + 10).map(u => ({ id: u.recId, fields: u.fields }));
+    await atFetch('PATCH', '', { records: batch });
+  }
+}
+async function atBatchDelete(recIds) {
+  for (let i = 0; i < recIds.length; i += 10) {
+    const qs = '?' + recIds.slice(i, i + 10).map(id => `records[]=${id}`).join('&');
+    await atFetch('DELETE', qs);
+  }
+}
+
+// ── Pull from Airtable → merge into local DB ─────────────────────────────────
+async function pullFromAirtable() {
+  if (!AT_TOKEN) return; // token not configured yet
+  const remoteRecords = await atGetAll();
+
+  // Records created directly in Airtable won't have a LocalID — assign one now
+  // and write it back immediately so the two-way link is established.
+  const backfillPatches = [];
+  for (const rec of remoteRecords) {
+    if (!rec.fields.LocalID) {
+      const newId = genId();
+      rec.fields.LocalID = newId; // patch in-memory so the rest of pull uses it
+      rec.fields.UpdatedAt = rec.fields.UpdatedAt || new Date().toISOString();
+      backfillPatches.push({ recId: rec.id, fields: { LocalID: newId } });
+    }
+  }
+  if (backfillPatches.length) await atBatchUpdate(backfillPatches);
+
+  for (const { key, section } of AT_SECTION_MAP) {
+    const localArr = DB[key];
+    // For each remote record in this section, merge into local
+    for (const rec of remoteRecords) {
+      if (rec.fields.Section !== section) continue;
+      const localIdx = localArr.findIndex(i => i.id === rec.fields.LocalID);
+      const remoteTime = new Date(rec.fields.UpdatedAt || 0).getTime();
+      const localTime  = localIdx >= 0 ? new Date(localArr[localIdx]._updatedAt || 0).getTime() : 0;
+      if (localIdx < 0) {
+        localArr.push(fromAtRecord(rec, section));
+      } else {
+        const local = localArr[localIdx];
+        const syncedAt  = new Date(local._syncedAt  || 0).getTime();
+        const updatedAt = new Date(local._updatedAt || 0).getTime();
+        const hasLocalEdits = updatedAt > syncedAt; // changes made after last successful push
+        if (hasLocalEdits) {
+          local._airtableId = rec.id; // keep local, just cache the record ID
+        } else {
+          localArr[localIdx] = fromAtRecord(rec, section); // no local edits — always take Airtable
+        }
+      }
+    }
+  }
+}
+
+// ── Push local DB → Airtable ─────────────────────────────────────────────────
+async function pushToAirtable() {
+  if (!AT_TOKEN) return; // token not configured yet
+  setSyncDot('syncing');
+  try {
+    const remoteRecords = await atGetAll();
+    const remoteMap = new Map(remoteRecords.map(r => [r.fields.LocalID, r]));
+    const allLocalIds = new Set();
+    const creates = [], updates = [];
+
+    for (const { key, section } of AT_SECTION_MAP) {
+      const localArr = DB[key];
+      localArr.forEach((item, idx) => {
+        if (!item.id) return;
+        if (item._auto) return; // auto-fetched QB codes — not in BV Board table, skip
+        allLocalIds.add(item.id);
+        if (!item._updatedAt) item._updatedAt = new Date().toISOString();
+        const fields = toAtFields(item, section);
+        const remote = remoteMap.get(item.id);
+        if (item._airtableId || remote) {
+          const recId = item._airtableId || remote.id;
+          item._airtableId = recId;
+          updates.push({ recId, fields });
+        } else {
+          creates.push({ idx: `${key}:${idx}`, fields, item });
+        }
+      });
+    }
+
+    if (creates.length) {
+      const newIds = await atBatchCreate(creates);
+      newIds.forEach(({ idx, recId }) => {
+        const [key, i] = idx.split(':');
+        if (DB[key] && DB[key][+i]) DB[key][+i]._airtableId = recId;
+      });
+    }
+    if (updates.length) await atBatchUpdate(updates);
+
+    // Mark all pushed items as synced — used by pull to detect local-only edits
+    const syncedAt = new Date().toISOString();
+    for (const { key } of AT_SECTION_MAP) {
+      DB[key].forEach(item => { if (item.id) item._syncedAt = syncedAt; });
+    }
+
+    // Delete Airtable records whose LocalID no longer exists locally.
+    // Exclude reserved records (snapshot, etc.) that are managed outside the sync loop.
+    const RESERVED_IDS = new Set(['__notices_snapshot__']);
+    const RESERVED_RECORD_IDS = new Set([AT_SNAPSHOT_REC]); // guard by Airtable record ID too
+    const syncedSections = new Set(AT_SECTION_MAP.map(m => m.section));
+    const toDelete = remoteRecords.filter(r =>
+      r.fields.LocalID &&
+      !RESERVED_IDS.has(r.fields.LocalID) &&
+      !RESERVED_RECORD_IDS.has(r.id) &&
+      syncedSections.has(r.fields.Section) &&
+      !allLocalIds.has(r.fields.LocalID)
+    ).map(r => r.id);
+    if (toDelete.length) await atBatchDelete(toDelete);
+
+    // Persist _airtableId + _syncedAt values back to localStorage
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(_) {}
+    setSyncDot('ok');
+  } catch(e) {
+    setSyncDot('error', e.message);
+    throw e;
+  }
+}
+
+// ── In-memory store for Final Renders (not persisted — URLs expire) ──────────
+const _projRenders = new Map(); // atRecordId → attachment array
+
+const PROJ_THUMB_KEY = 'boovara_proj_thumbs'; // {atId: idx} in localStorage
+function getProjThumbIdx(atId) {
+  try { return JSON.parse(localStorage.getItem(PROJ_THUMB_KEY) || '{}')[atId] || 0; } catch { return 0; }
+}
+function setProjThumbIdx(atId, idx) {
+  try {
+    const p = JSON.parse(localStorage.getItem(PROJ_THUMB_KEY) || '{}');
+    p[atId] = idx;
+    localStorage.setItem(PROJ_THUMB_KEY, JSON.stringify(p));
+  } catch {}
+}
+
+// ── Pull QB Codes + Final Renders from Projects table ────────────────────────
+async function pullProjectCodes() {
+  if (!AT_TOKEN) return;
+  const ACTIVE = new Set([
+    'In Queue for Fabrication',
+    'Fabrication In Progress',
+    'Awaiting Payment',
+    'Awaiting Deposit',
+    'Awaiting Strike',
+  ]);
+
+  const baseUrl = `https://api.airtable.com/v0/${AT_BASE}/${AT_PROJ_TID}`
+    + `?fields[]=QB+Code&fields[]=Status&fields[]=PID&fields[]=Final+Renders`
+    + `&filterByFormula=${encodeURIComponent("NOT({QB Code} = '')")}`;
+  const headers = { 'Authorization': `Bearer ${AT_TOKEN}` };
+
+  let records = [], offset = null;
+  do {
+    const url = baseUrl + (offset ? `&offset=${encodeURIComponent(offset)}` : '');
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    records.push(...(data.records || []));
+    offset = data.offset || null;
+  } while (offset);
+
+  const qbItems = records
+    .filter(r => {
+      const s = r.fields.Status || [];
+      return s.some(x => ACTIVE.has(x));
+    })
+    .sort((a, b) => (a.fields['QB Code'] || '').localeCompare(b.fields['QB Code'] || ''))
+    .map(r => {
+      // Store renders in memory (URLs are time-limited, never put in localStorage)
+      const renders = (r.fields['Final Renders'] || []).filter(a => (a.type || '').startsWith('image/'));
+      _projRenders.set(r.id, renders);
+      return {
+        id: `__auto_qb_${r.id}`,
+        _atId: r.id,
+        text: r.fields['QB Code'],
+        _auto: true,
+      };
+    });
+
+  DB.project = DB.project.filter(i => !i._auto);
+  DB.project.unshift(...qbItems);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(_) {}
+  renderProject();
+}
+
+// ── Notices screenshot → Airtable attachment ─────────────────────────────────
+function buildNoticesSnapshot() {
+  const W = inkC.width, H = inkC.height;
+  if (!W || !H) return null;
+  const off = document.createElement('canvas');
+  off.width = W; off.height = H;
+  const ctx = off.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#0e1014';
+  ctx.fillRect(0, 0, W, H);
+
+  // Ink layer + objects layer
+  ctx.drawImage(inkC, 0, 0);
+  ctx.drawImage(objC, 0, 0);
+
+  // Sticky notes
+  const PAD = 10, SW = 160, RADIUS = 6;
+  DB.notices_stickies.forEach(s => {
+    const lines = (s.text || '').split('\n');
+    const SH = Math.max(72, PAD * 2 + lines.length * 18 + PAD);
+    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
+    ctx.beginPath();
+    ctx.roundRect(s.x, s.y, SW, SH, RADIUS);
+    ctx.fillStyle = s.color || '#f0f0f0';
+    ctx.fill();
+    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.fillStyle = 'rgba(0,0,0,.72)';
+    ctx.font = '12px "DM Sans", sans-serif';
+    lines.forEach((ln, i) => ctx.fillText(ln, s.x + PAD, s.y + PAD + 14 + i * 18, SW - PAD * 2));
+  });
+
+  return off;
+}
+
+async function uploadNoticesSnapshot() {
+  if (!AT_TOKEN) return;
+  try {
+    const canvas = buildNoticesSnapshot();
+    if (!canvas) return;
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const ts = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', 'h') + 'm';
+    const filename = `notices-${ts}.png`;
+
+    // POST raw PNG to serverless proxy — it handles the Airtable content API server-side
+    const res = await fetch('/api/upload-snapshot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: blob,
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      console.warn('Notices snapshot upload failed:', res.status, txt);
+    } else {
+      console.log('Notices snapshot uploaded:', filename);
+    }
+  } catch(e) {
+    console.warn('Notices snapshot upload failed:', e);
+  }
+}
+
+// ── Debounced sync timer ─────────────────────────────────────────────────────
+let _syncTimer = null;
+
 function saveDB() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(_) {}
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => pushToAirtable().catch(e => console.warn('Airtable sync:', e)), 1500);
 }
 
 const DB = loadDB();
@@ -1272,6 +1843,19 @@ function mkSupplyRow(item) {
   const el = document.createElement('div');
   el.className = 'supply-item';
 
+  const top = document.createElement('div');
+  top.className = 'supply-item-top';
+
+  if (item.thumbnailUrl) {
+    const thumb = document.createElement('img');
+    thumb.className = 'supply-thumb';
+    thumb.src = item.thumbnailUrl;
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    thumb.onerror = function() { this.style.display = 'none'; };
+    top.appendChild(thumb);
+  }
+
   const name = document.createElement('div');
   name.className = 'supply-name' + (item.arrived ? ' is-arrived' : '');
   name.textContent = item.text;
@@ -1281,6 +1865,7 @@ function mkSupplyRow(item) {
       item.text = val; saveDB(); renderSupply();
     }, item.text);
   });
+  top.appendChild(name);
 
   // Footer row: badges left, delete right
   const footer = document.createElement('div');
@@ -1295,18 +1880,31 @@ function mkSupplyRow(item) {
   const toggleOrdered = (e) => {
     e.stopPropagation();
     item.ordered = !item.ordered;
-    if (!item.ordered) item.arrived = false;
+    if (!item.ordered) { item.shipped = false; item.arrived = false; }
     saveDB(); renderSupply();
   };
   bOrd.addEventListener('click', toggleOrdered);
   bOrd.addEventListener('touchend', e => { e.preventDefault(); toggleOrdered(e); });
+
+  const bShip = document.createElement('div');
+  bShip.className = 'sbadge sbadge-shipped' + (item.shipped ? ' active' : '');
+  bShip.textContent = 'Shipped';
+  const toggleShipped = (e) => {
+    e.stopPropagation();
+    item.shipped = !item.shipped;
+    if (item.shipped && !item.ordered) item.ordered = true;
+    if (!item.shipped) item.arrived = false;
+    saveDB(); renderSupply();
+  };
+  bShip.addEventListener('click', toggleShipped);
+  bShip.addEventListener('touchend', e => { e.preventDefault(); toggleShipped(e); });
 
   const bArr = document.createElement('div');
   bArr.className = 'sbadge sbadge-arrived' + (item.arrived ? ' active' : '');
   bArr.textContent = item.arrived ? '✓ Arrived' : 'Arrived';
   const toggleArrived = (e) => {
     e.stopPropagation();
-    if (!item.arrived && !item.ordered) item.ordered = true;
+    if (!item.arrived) { item.ordered = true; item.shipped = true; }
     item.arrived = !item.arrived;
     saveDB(); renderSupply();
   };
@@ -1326,22 +1924,37 @@ function mkSupplyRow(item) {
   del.addEventListener('click', doDelete);
   del.addEventListener('touchend', e => { e.preventDefault(); doDelete(e); });
 
-  badges.append(bOrd, bArr);
+  badges.append(bOrd, bShip, bArr);
+
+  // Amazon link — always show when ordered; use synced URL or fall back to search
+  if (item.ordered) {
+    var aLink = document.createElement('a');
+    aLink.className = 'task-link-btn';
+    aLink.href = item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
+    aLink.target = '_blank';
+    aLink.rel = 'noopener noreferrer';
+    aLink.title = 'View on Amazon';
+    aLink.innerHTML = '&#x2197;';
+    aLink.addEventListener('click', function(e) { e.stopPropagation(); });
+    aLink.addEventListener('touchend', function(e) { e.stopPropagation(); });
+    badges.appendChild(aLink);
+  }
+
   footer.append(badges, del);
-  el.append(name, footer);
+  el.append(top, footer);
   return el;
 }
 
 document.getElementById('add-supply-btn').addEventListener('click', () => {
   openInput('Add Supply Item', 'e.g. Blue nitrile gloves, Box 100ct…', 'Add', val => {
-    DB.supply.push({ id: genId(), text: val, ordered: false, arrived: false });
+    DB.supply.push({ id: genId(), text: val, ordered: false, shipped: false, arrived: false });
     saveDB(); renderSupply(); showToast('Item added');
   });
 });
 document.getElementById('add-supply-btn').addEventListener('touchend', e => {
   e.preventDefault();
   openInput('Add Supply Item', 'e.g. Blue nitrile gloves, Box 100ct…', 'Add', val => {
-    DB.supply.push({ id: genId(), text: val, ordered: false, arrived: false });
+    DB.supply.push({ id: genId(), text: val, ordered: false, shipped: false, arrived: false });
     saveDB(); renderSupply(); showToast('Item added');
   });
 });
@@ -1352,6 +1965,10 @@ document.getElementById('add-supply-btn').addEventListener('touchend', e => {
 function renderProject() {
   const body = document.getElementById('project-body');
   body.innerHTML = '';
+
+  const autoItems   = DB.project.filter(i => i._auto);
+  const manualItems = DB.project.filter(i => !i._auto);
+
   if (!DB.project.length) {
     body.innerHTML = `<div class="q-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 3-3 3M13 14h4"/></svg>
@@ -1359,16 +1976,80 @@ function renderProject() {
     </div>`;
     return;
   }
-  DB.project.forEach(item => body.appendChild(mkProjRow(item)));
+
+  // Auto items → 4-column card grid
+  if (autoItems.length) {
+    const grid = document.createElement('div');
+    grid.className = 'proj-grid';
+    autoItems.forEach(item => grid.appendChild(mkProjCard(item)));
+    body.appendChild(grid);
+  }
+
+  // Manual items → classic rows below the grid
+  manualItems.forEach(item => body.appendChild(mkProjRow(item)));
+}
+
+function mkProjCard(item) {
+  const atId = item._atId || (item.id.startsWith('__auto_qb_') ? item.id.slice(10) : item.id);
+
+  const card = document.createElement('div');
+  card.className = 'proj-card';
+
+  // Bold QB Code label
+  const label = document.createElement('div');
+  label.className = 'proj-card-label';
+  label.textContent = item.text || '';
+  label.title = item.text || '';
+
+  // Thumbnail area
+  const wrap = document.createElement('div');
+  wrap.className = 'proj-card-thumb';
+
+  // Populate thumb image (if renders available)
+  const renders = _projRenders.get(atId) || [];
+  if (renders.length) {
+    const prefIdx = Math.min(getProjThumbIdx(atId), renders.length - 1);
+    const thumb   = renders[prefIdx];
+    const img = document.createElement('img');
+    img.src = (thumb.thumbnails && thumb.thumbnails.large && thumb.thumbnails.large.url) || thumb.url;
+    img.alt = item.text || '';
+    img.draggable = false;
+    wrap.appendChild(img);
+  } else {
+    wrap.classList.add('proj-card-thumb--empty');
+    const empty = document.createElement('span');
+    empty.textContent = 'No image';
+    wrap.appendChild(empty);
+  }
+
+  // Click handler — always lazy-lookup renders so it works even if card
+  // was created before pullProjectCodes completed
+  const handleClick = () => {
+    const freshRenders = _projRenders.get(atId) || [];
+    if (!freshRenders.length) {
+      navigator.clipboard && navigator.clipboard.writeText(item.text || '').catch(function(){});
+      showToast('Copied!');
+      return;
+    }
+    const freshPref = Math.min(getProjThumbIdx(atId), freshRenders.length - 1);
+    openProjLightbox(item, freshRenders, freshPref);
+  };
+  card.addEventListener('click', handleClick);
+  card.addEventListener('touchend', function(e) { e.preventDefault(); handleClick(); });
+
+  card.append(label, wrap);
+  return card;
 }
 
 function mkProjRow(item) {
+  // Manual project code rows (non-auto)
   const el = document.createElement('div');
   el.className = 'proj-item';
 
   const text = document.createElement('div');
   text.className = 'proj-text' + (!item.text ? ' empty' : '');
   text.textContent = item.text || 'Tap to add code…';
+
   const editProj = () => {
     openInput('Edit Project Code', 'e.g. PRJ-2024-001…', 'Save', val => {
       item.text = val; saveDB(); renderProject();
@@ -1389,9 +2070,96 @@ function mkProjRow(item) {
   };
   del.addEventListener('click', doDel);
   del.addEventListener('touchend', e => { e.preventDefault(); doDel(e); });
-
   el.append(text, del);
   return el;
+}
+
+function openProjLightbox(item, renders, coverIdx) {
+  if (!renders || !renders.length) return;
+  // Remove any existing lightbox
+  var old = document.querySelector('.proj-lb-overlay');
+  if (old) old.remove();
+
+  coverIdx = Math.min(coverIdx || 0, renders.length - 1);
+  var activeIdx = coverIdx;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'proj-lb-overlay';
+
+  var box = document.createElement('div');
+  box.className = 'proj-lb-box';
+
+  // Header
+  var hdr = document.createElement('div');
+  hdr.className = 'proj-lb-hdr';
+  var title = document.createElement('span');
+  title.textContent = item.text || '';
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'proj-lb-close';
+  closeBtn.textContent = '\u2715';
+  closeBtn.addEventListener('click', function() { overlay.remove(); });
+  hdr.append(title, closeBtn);
+
+  // Main image
+  var mainImg = document.createElement('img');
+  mainImg.className = 'proj-lb-main';
+
+  // Thumbnail strip (built first so showMain can reference it)
+  var strip = document.createElement('div');
+  strip.className = 'proj-lb-strip';
+
+  function getImgUrl(r, size) {
+    if (!r) return '';
+    if (r.thumbnails && r.thumbnails[size] && r.thumbnails[size].url) return r.thumbnails[size].url;
+    return r.url || '';
+  }
+
+  function showMain(idx) {
+    var r = renders[idx];
+    if (!r) return;
+    mainImg.src = getImgUrl(r, 'full') || getImgUrl(r, 'large') || r.url || '';
+    activeIdx = idx;
+    var thumbs = strip.querySelectorAll('.proj-lb-sthumb');
+    thumbs.forEach(function(t, j) { t.classList.toggle('is-active', j === idx); });
+  }
+
+  var atId = item._atId || (item.id && item.id.startsWith('__auto_qb_') ? item.id.slice(10) : item.id);
+
+  renders.forEach(function(r, i) {
+    var sthumb = document.createElement('div');
+    sthumb.className = 'proj-lb-sthumb' + (i === coverIdx ? ' is-cover is-active' : '');
+
+    var simg = document.createElement('img');
+    simg.src = getImgUrl(r, 'small') || getImgUrl(r, 'large') || r.url || '';
+    simg.alt = r.filename || '';
+
+    var coverBtn = document.createElement('button');
+    coverBtn.className = 'proj-lb-cover-btn';
+    coverBtn.title = 'Set as cover thumbnail';
+    coverBtn.textContent = i === coverIdx ? '\u2605' : '\u2606';
+
+    simg.addEventListener('click', function() { showMain(i); });
+    coverBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      setProjThumbIdx(atId, i);
+      strip.querySelectorAll('.proj-lb-sthumb').forEach(function(t, j) {
+        t.classList.toggle('is-cover', j === i);
+        t.querySelector('.proj-lb-cover-btn').textContent = j === i ? '\u2605' : '\u2606';
+      });
+      renderProject();
+    });
+
+    sthumb.append(simg, coverBtn);
+    strip.appendChild(sthumb);
+  });
+
+  // Set initial main image
+  showMain(coverIdx);
+
+  box.append(hdr, mainImg, strip);
+  overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
 }
 
 document.getElementById('add-project-btn').addEventListener('click', () => {
@@ -1441,10 +2209,9 @@ function mkTaskRow(item) {
   const text = document.createElement('div');
   text.className = 'task-text' + (item.done ? ' done' : '');
   text.textContent = item.text;
-  // Tap text to edit (only if not done)
   const editTask = () => {
     if (item.done) return;
-    openInput('Edit Task', 'Task description…', 'Save', val => {
+    openInput('Edit Task', 'Task description\u2026', 'Save', val => {
       item.text = val; saveDB(); renderTasks();
     }, item.text);
   };
@@ -1452,7 +2219,7 @@ function mkTaskRow(item) {
   text.addEventListener('touchend', e => { e.preventDefault(); editTask(); });
 
   const del = document.createElement('button');
-  del.className = 'task-del'; del.textContent = '✕';
+  del.className = 'task-del'; del.textContent = '\u2715';
   const doDel = (e) => {
     e.stopPropagation();
     el.classList.add('removing');
@@ -1481,6 +2248,53 @@ document.getElementById('add-task-btn').addEventListener('touchend', e => {
     saveDB(); renderTasks(); showToast('Task added');
   });
 });
+
+/* ── Sync Amazon Orders ─────────────────────────────────────────────────── */
+async function syncAmazonOrders(silent) {
+  var btn = document.getElementById('sync-amzn-btn');
+  if (btn) btn.classList.add('syncing');
+  try {
+    var items = DB.supply.map(function(s) { return { id: s.id, text: s.text || '' }; });
+    var resp = await fetch('/api/sync-amazon-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tasks: items })
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var data = await resp.json();
+    var changed = 0;
+    (data.matches || []).forEach(function(m) {
+      var item = DB.supply.find(function(s) { return s.id === m.taskId; });
+      if (item) {
+        var st = (m.status || 'ordered').toLowerCase();
+        item.ordered      = true;
+        item.shipped      = (st === 'shipped' || st === 'delivered');
+        item.arrived      = (st === 'delivered');
+        item.orderUrl     = m.orderUrl || null;
+        item.thumbnailUrl = m.thumbnailUrl || item.thumbnailUrl || null;
+        changed++;
+      }
+    });
+    if (changed) {
+      saveDB(); renderSupply();
+      if (!silent) showToast(changed + ' item' + (changed > 1 ? 's' : '') + ' synced with Amazon');
+    } else {
+      if (!silent) showToast('No Amazon matches found');
+    }
+  } catch(e) {
+    console.error('Sync Amazon error:', e);
+    showToast('Amazon sync failed');
+  } finally {
+    if (btn) btn.classList.remove('syncing');
+  }
+}
+
+(function() {
+  var syncBtn = document.getElementById('sync-amzn-btn');
+  if (!syncBtn) return;
+  syncBtn.addEventListener('click', function(e) { e.stopPropagation(); syncAmazonOrders(); });
+  syncBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); syncAmazonOrders(); });
+})();
 
 /* ══════════════════════════════════════════════════════
    ── NOTICES DRAWING CANVAS ──
@@ -2034,10 +2848,50 @@ renderTasks();
 
 // Init canvas after layout settles
 requestAnimationFrame(() => {
-  setTimeout(() => {
+  setTimeout(async () => {
     resizeNotices();
     renderStickies();
     setNtTool('pen');
+
+    // Load Airtable token from server, then start all Airtable sync tasks
+    try {
+      const cfg = await fetch('/api/config').then(r => r.json());
+      AT_TOKEN = cfg.atToken || '';
+    } catch(e) {
+      console.warn('Config fetch failed — Airtable sync disabled:', e);
+    }
+
+    if (AT_TOKEN) {
+      setSyncDot('syncing');
+      pullFromAirtable().then(() => {
+        saveDB();
+        renderSupply(); renderProject(); renderTasks(); renderStickies(); redrawObjs();
+        setSyncDot('ok');
+      }).catch(e => {
+        setSyncDot('error', e.message);
+        console.warn('Airtable pull on load:', e);
+      });
+
+      // Pull QB Codes from Projects table — populates Project Codes section
+      pullProjectCodes().catch(e => console.warn('QB codes pull:', e));
+
+      // Amazon Orders auto-sync — first run 10s after load, then every 30 minutes
+      setTimeout(function() { syncAmazonOrders(true); }, 10000);
+      setInterval(function() { syncAmazonOrders(true); }, 30 * 60 * 1000);
+
+      // Notices screenshot — first upload 3s after load, then every 10 minutes
+      setTimeout(uploadNoticesSnapshot, 3000);
+      setInterval(uploadNoticesSnapshot, 10 * 60 * 1000);
+
+      // F5 / Ctrl+R — upload snapshot first, then reload
+      document.addEventListener('keydown', async (e) => {
+        const isRefresh = e.key === 'F5' || (e.ctrlKey && e.key.toLowerCase() === 'r');
+        if (!isRefresh) return;
+        e.preventDefault();
+        await uploadNoticesSnapshot();
+        location.reload();
+      });
+    }
   }, 100);
 });
 </script>
