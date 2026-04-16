@@ -309,47 +309,103 @@ body {
 .q-empty svg { width: 28px; height: 28px; opacity: .35; }
 
 /* ══════════════════════════════════════════
-   SUPPLY NEEDS ITEMS
+   SUPPLY NEEDS — 2-COLUMN GRID
 ══════════════════════════════════════════ */
+#supply-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px;
+  background: transparent !important; /* remove ruled lines */
+}
+#supply-body .q-empty { grid-column: 1 / -1; }
+
 .supply-item {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 8px 10px 9px;
-  border-bottom: 1px solid rgba(255,255,255,.05);
-  transition: background .1s;
+  gap: 7px;
+  padding: 9px;
+  background: rgba(255,255,255,.035);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 9px;
+  transition: background .12s;
 }
-.supply-item:active { background: rgba(255,255,255,.02); }
-
-.supply-name {
-  font-size: 14px;
-  line-height: 1.35;
-  word-break: break-word;
-  cursor: pointer;
-  color: var(--text);
-}
-.supply-name.is-arrived { text-decoration: line-through; color: var(--dim); }
+.supply-item:active { background: rgba(255,255,255,.07); }
 
 .supply-item-top {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 9px;
+  align-items: flex-start;
 }
 .supply-thumb {
-  width: 46px;
-  height: 46px;
-  border-radius: 5px;
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
   object-fit: contain;
   background: rgba(255,255,255,.06);
   flex-shrink: 0;
-  border: 1px solid rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.08);
+  display: block;
 }
+.supply-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.supply-name {
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-word;
+  cursor: pointer;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.supply-name.is-arrived { text-decoration: line-through; color: var(--dim); }
+
+/* Expected Delivery label */
+.supply-delivery {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.supply-del-label {
+  font-size: 8px;
+  font-family: 'Syne', sans-serif;
+  font-weight: 600;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+  color: var(--dim2);
+}
+.supply-del-date {
+  font-size: 11px;
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  letter-spacing: .3px;
+  color: var(--accent);
+}
+.supply-del-date.overdue { color: #e05c5c; }
+.supply-del-date.today   { color: #f5c842; }
+
 .supply-item-footer {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  flex-wrap: wrap;
 }
-.supply-badges { display: flex; gap: 5px; align-items: center; flex: 1; }
+.supply-badges { display: flex; gap: 4px; align-items: center; flex: 1; flex-wrap: wrap; }
+
+/* Delete button — absolute top-right corner */
+.row-del {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+}
 
 .sbadge {
   font-family: 'Syne', sans-serif;
@@ -377,13 +433,14 @@ body {
 .sbadge-arrived.active { background: rgba(126,232,162,.18); border-color: rgba(126,232,162,.5); color: var(--accent); }
 
 .row-del {
-  width: 24px; height: 24px;
+  width: 22px; height: 22px;
   border-radius: 50%; border: none;
   background: rgba(224,92,92,.08);
   color: rgba(224,92,92,.4);
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 13px; flex-shrink: 0;
+  cursor: pointer; font-size: 12px; flex-shrink: 0;
   touch-action: manipulation; transition: all .12s;
+  z-index: 1;
 }
 .row-del:active { background: rgba(224,92,92,.35); color: #fff; }
 
@@ -1412,9 +1469,10 @@ async function pullFromAirtable() {
           const merged = fromAtRecord(rec, section);
           // Preserve locally-cached fields that live outside the BV Board table
           if (section === 'supply') {
-            merged.thumbnailUrl = local.thumbnailUrl || null;
-            merged.orderUrl     = local.orderUrl     || null;
-            merged.productUrl   = local.productUrl   || null;
+            merged.thumbnailUrl     = local.thumbnailUrl     || null;
+            merged.orderUrl         = local.orderUrl         || null;
+            merged.productUrl       = local.productUrl       || null;
+            merged.expectedDelivery = local.expectedDelivery || null;
           }
           localArr[localIdx] = merged;
         }
@@ -1846,10 +1904,46 @@ function renderSupply() {
   DB.supply.forEach(item => body.appendChild(mkSupplyRow(item)));
 }
 
+// Returns { label, date, cls } for a delivery date string "YYYY-MM-DD"
+function formatDeliveryDate(dateStr) {
+  if (!dateStr) return null;
+  const p = dateStr.split('-');
+  const date = new Date(+p[0], +p[1] - 1, +p[2]);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((date - today) / 86400000);
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const mdStr = m + '/' + d;
+  const DAYS = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const dayName = DAYS[date.getDay()];
+  if (diff < -1)  return { label: 'OVERDUE',        date: mdStr, cls: 'overdue' };
+  if (diff === -1) return { label: 'YESTERDAY',      date: mdStr, cls: 'overdue' };
+  if (diff === 0)  return { label: 'TODAY',          date: mdStr, cls: 'today'   };
+  if (diff === 1)  return { label: 'TOMORROW',       date: mdStr, cls: ''        };
+  if (diff <= 6)   return { label: 'THIS ' + dayName,date: mdStr, cls: ''        };
+  return             { label: dayName,              date: mdStr, cls: ''        };
+}
+
 function mkSupplyRow(item) {
   const el = document.createElement('div');
   el.className = 'supply-item';
 
+  // ── Delete button — absolute top-right ──
+  const del = document.createElement('button');
+  del.className = 'row-del'; del.textContent = '✕';
+  const doDelete = (e) => {
+    e.stopPropagation();
+    el.classList.add('removing');
+    el.addEventListener('animationend', () => {
+      DB.supply = DB.supply.filter(i => i.id !== item.id);
+      saveDB(); renderSupply();
+    }, {once:true});
+  };
+  del.addEventListener('click', doDelete);
+  del.addEventListener('touchend', e => { e.preventDefault(); doDelete(e); });
+  el.appendChild(del);
+
+  // ── Top row: thumbnail + info column ──
   const top = document.createElement('div');
   top.className = 'supply-item-top';
 
@@ -1870,18 +1964,39 @@ function mkSupplyRow(item) {
     top.appendChild(thumbLink);
   }
 
+  const info = document.createElement('div');
+  info.className = 'supply-item-info';
+
   const name = document.createElement('div');
   name.className = 'supply-name' + (item.arrived ? ' is-arrived' : '');
   name.textContent = item.text;
-  // Tap name to edit
   name.addEventListener('click', () => {
     openInput('Edit Item', 'Item name…', 'Save', val => {
       item.text = val; saveDB(); renderSupply();
     }, item.text);
   });
-  top.appendChild(name);
+  info.appendChild(name);
 
-  // Footer row: badges left, delete right
+  // Expected Delivery label (dynamic natural language)
+  if (item.expectedDelivery) {
+    const delInfo = formatDeliveryDate(item.expectedDelivery);
+    if (delInfo) {
+      const deliveryEl = document.createElement('div');
+      deliveryEl.className = 'supply-delivery';
+      const lbl = document.createElement('span');
+      lbl.className = 'supply-del-label';
+      lbl.textContent = 'Expected Delivery:';
+      const dat = document.createElement('span');
+      dat.className = 'supply-del-date' + (delInfo.cls ? ' ' + delInfo.cls : '');
+      dat.textContent = delInfo.label + ', ' + delInfo.date;
+      deliveryEl.append(lbl, dat);
+      info.appendChild(deliveryEl);
+    }
+  }
+
+  top.appendChild(info);
+
+  // ── Footer: status badges + Amazon link ──
   const footer = document.createElement('div');
   footer.className = 'supply-item-footer';
 
@@ -1925,36 +2040,23 @@ function mkSupplyRow(item) {
   bArr.addEventListener('click', toggleArrived);
   bArr.addEventListener('touchend', e => { e.preventDefault(); toggleArrived(e); });
 
-  const del = document.createElement('button');
-  del.className = 'row-del'; del.textContent = '✕';
-  const doDelete = (e) => {
-    e.stopPropagation();
-    el.classList.add('removing');
-    el.addEventListener('animationend', () => {
-      DB.supply = DB.supply.filter(i => i.id !== item.id);
-      saveDB(); renderSupply();
-    }, {once:true});
-  };
-  del.addEventListener('click', doDelete);
-  del.addEventListener('touchend', e => { e.preventDefault(); doDelete(e); });
-
   badges.append(bOrd, bShip, bArr);
 
-  // Amazon link — always show when ordered; use product URL or fall back to search
+  // Amazon link — use product URL or fall back to search
   if (item.ordered) {
-    var aLink = document.createElement('a');
+    const aLink = document.createElement('a');
     aLink.className = 'task-link-btn';
     aLink.href = item.productUrl || item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
     aLink.target = '_blank';
     aLink.rel = 'noopener noreferrer';
     aLink.title = 'View on Amazon';
     aLink.innerHTML = '&#x2197;';
-    aLink.addEventListener('click', function(e) { e.stopPropagation(); });
-    aLink.addEventListener('touchend', function(e) { e.stopPropagation(); });
+    aLink.addEventListener('click', e => e.stopPropagation());
+    aLink.addEventListener('touchend', e => e.stopPropagation());
     badges.appendChild(aLink);
   }
 
-  footer.append(badges, del);
+  footer.appendChild(badges);
   el.append(top, footer);
   return el;
 }
@@ -2284,9 +2386,10 @@ async function syncAmazonOrders(silent) {
         item.ordered      = true;
         item.shipped      = (st === 'shipped' || st === 'delivered');
         item.arrived      = (st === 'delivered');
-        item.orderUrl     = m.orderUrl   || m.productUrl || null;
-        item.productUrl   = m.productUrl || m.orderUrl   || null;
-        item.thumbnailUrl = m.thumbnailUrl || item.thumbnailUrl || null;
+        item.orderUrl         = m.orderUrl        || m.productUrl    || null;
+        item.productUrl       = m.productUrl      || m.orderUrl      || null;
+        item.thumbnailUrl     = m.thumbnailUrl     || item.thumbnailUrl     || null;
+        item.expectedDelivery = m.expectedDelivery || item.expectedDelivery || null;
         changed++;
       }
     });
