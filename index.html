@@ -1409,7 +1409,14 @@ async function pullFromAirtable() {
         if (hasLocalEdits) {
           local._airtableId = rec.id; // keep local, just cache the record ID
         } else {
-          localArr[localIdx] = fromAtRecord(rec, section); // no local edits — always take Airtable
+          const merged = fromAtRecord(rec, section);
+          // Preserve locally-cached fields that live outside the BV Board table
+          if (section === 'supply') {
+            merged.thumbnailUrl = local.thumbnailUrl || null;
+            merged.orderUrl     = local.orderUrl     || null;
+            merged.productUrl   = local.productUrl   || null;
+          }
+          localArr[localIdx] = merged;
         }
       }
     }
@@ -1847,13 +1854,20 @@ function mkSupplyRow(item) {
   top.className = 'supply-item-top';
 
   if (item.thumbnailUrl) {
+    const thumbLink = document.createElement('a');
+    thumbLink.href = item.productUrl || item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
+    thumbLink.target = '_blank';
+    thumbLink.rel = 'noopener noreferrer';
+    thumbLink.addEventListener('click', e => e.stopPropagation());
+    thumbLink.addEventListener('touchend', e => e.stopPropagation());
     const thumb = document.createElement('img');
     thumb.className = 'supply-thumb';
     thumb.src = item.thumbnailUrl;
     thumb.alt = '';
     thumb.loading = 'lazy';
-    thumb.onerror = function() { this.style.display = 'none'; };
-    top.appendChild(thumb);
+    thumb.onerror = function() { thumbLink.style.display = 'none'; };
+    thumbLink.appendChild(thumb);
+    top.appendChild(thumbLink);
   }
 
   const name = document.createElement('div');
@@ -1926,11 +1940,11 @@ function mkSupplyRow(item) {
 
   badges.append(bOrd, bShip, bArr);
 
-  // Amazon link — always show when ordered; use synced URL or fall back to search
+  // Amazon link — always show when ordered; use product URL or fall back to search
   if (item.ordered) {
     var aLink = document.createElement('a');
     aLink.className = 'task-link-btn';
-    aLink.href = item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
+    aLink.href = item.productUrl || item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
     aLink.target = '_blank';
     aLink.rel = 'noopener noreferrer';
     aLink.title = 'View on Amazon';
@@ -2270,7 +2284,8 @@ async function syncAmazonOrders(silent) {
         item.ordered      = true;
         item.shipped      = (st === 'shipped' || st === 'delivered');
         item.arrived      = (st === 'delivered');
-        item.orderUrl     = m.orderUrl || null;
+        item.orderUrl     = m.orderUrl   || m.productUrl || null;
+        item.productUrl   = m.productUrl || m.orderUrl   || null;
         item.thumbnailUrl = m.thumbnailUrl || item.thumbnailUrl || null;
         changed++;
       }
@@ -2867,6 +2882,8 @@ requestAnimationFrame(() => {
         saveDB();
         renderSupply(); renderProject(); renderTasks(); renderStickies(); redrawObjs();
         setSyncDot('ok');
+        // Run Amazon sync immediately after Airtable pull so thumbnails & product URLs are ready on load
+        syncAmazonOrders(true);
       }).catch(e => {
         setSyncDot('error', e.message);
         console.warn('Airtable pull on load:', e);
@@ -2875,8 +2892,7 @@ requestAnimationFrame(() => {
       // Pull QB Codes from Projects table — populates Project Codes section
       pullProjectCodes().catch(e => console.warn('QB codes pull:', e));
 
-      // Amazon Orders auto-sync — first run 10s after load, then every 30 minutes
-      setTimeout(function() { syncAmazonOrders(true); }, 10000);
+      // Amazon Orders periodic re-sync — every 30 minutes
       setInterval(function() { syncAmazonOrders(true); }, 30 * 60 * 1000);
 
       // Notices screenshot — first upload 3s after load, then every 10 minutes

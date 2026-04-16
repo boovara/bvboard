@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   try {
     do {
       const url = `https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE}`
-        + `?fields[]=Product+Name&fields[]=Status&fields[]=Order+URL&fields[]=Keywords&fields[]=Thumbnail+URL`
+        + `?fields[]=Product+Name&fields[]=Status&fields[]=Order+URL&fields[]=Keywords&fields[]=Thumbnail+URL&fields[]=Product+URL`
         + (offset ? `&offset=${encodeURIComponent(offset)}` : '');
       const resp = await fetch(url, {
         headers: { 'Authorization': `Bearer ${AT_TOKEN}` },
@@ -75,6 +75,7 @@ export default async function handler(req, res) {
       name:         name,
       status:       (rec.fields['Status'] || 'Ordered').toLowerCase(),
       url:          rec.fields['Order URL'] || null,
+      productUrl:   rec.fields['Product URL'] || null,
       thumbnailUrl: rec.fields['Thumbnail URL'] || null,
       tokens:       tokenize(name + ' ' + keywords),
     };
@@ -99,13 +100,14 @@ export default async function handler(req, res) {
     });
 
     if (bestProduct) {
-      const orderUrl = bestProduct.url
+      const productUrl = bestProduct.productUrl || bestProduct.url
         || 'https://www.amazon.com/s?k=' + encodeURIComponent(bestProduct.name);
       matches.push({
         taskId:       task.id,
         productName:  bestProduct.name,
         status:       bestProduct.status,
-        orderUrl:     orderUrl,
+        orderUrl:     productUrl,
+        productUrl:   productUrl,
         thumbnailUrl: bestProduct.thumbnailUrl || null,
         score:        Math.round(bestScore * 100) / 100,
       });
