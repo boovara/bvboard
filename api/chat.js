@@ -73,13 +73,15 @@ async function buildSnapshot() {
     await Promise.all(Object.values(TABLES).map(atFetchAll));
 
   const board = compact(bvBoard);
-  const bySection = { tasks: [], supply: [], projectCodes: [], notices: [] };
+  const bySection = { tasks: [], supply: [], projectCodes: [], notices: [], canvas: [] };
   for (const rec of board) {
     const s = (rec.Section || '').toLowerCase();
-    if (s === 'tasks')         bySection.tasks.push(rec);
-    else if (s === 'supply')   bySection.supply.push(rec);
-    else if (s === 'projects') bySection.projectCodes.push(rec);
-    else if (s === 'notices')  bySection.notices.push(rec);
+    // Actual Airtable values are singular: task / supply / canvas / etc.
+    if (s === 'task' || s === 'tasks')           bySection.tasks.push(rec);
+    else if (s === 'supply')                     bySection.supply.push(rec);
+    else if (s === 'project' || s === 'projects')bySection.projectCodes.push(rec);
+    else if (s === 'notice'  || s === 'notices') bySection.notices.push(rec);
+    else if (s === 'canvas'  || s === 'sticky')  bySection.canvas.push(rec);
   }
 
   const now = new Date();
@@ -186,7 +188,7 @@ const TOOLS = [
         },
         body: JSON.stringify({
           fields: {
-            Section:   'tasks',
+            Section:   'task',
             LocalID:   localId,
             Text:      text,
             Name:      text.slice(0, 60),
