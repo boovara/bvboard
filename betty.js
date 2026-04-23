@@ -213,71 +213,72 @@
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     });
 
-    // ── Dictation + continuous-listen w/ 5s silence timeout ────────────────
+    // ── Dictation + continuous-listen ──────────────────────────────────────
+    // Creates a fresh SpeechRecognition per session — reusing a single
+    // instance caused Chrome to end the follow-up session after ~1s.
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const INITIAL_SILENCE_MS  = 1000; // first tap on mic — cut off fast
+    const FOLLOWUP_SILENCE_MS = 5000; // after Betty's reply — give thinking time
+    let activeRec = null;
     let startListening = () => {};
+
     if (SR) {
-      const rec = new SR();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.lang = 'en-US';
-
-      let recording = false;
-      let base = '';
-      let silenceTimer = null;
-      let gotSpeech = false;
-      let silenceMs = 1000; // set per startListening call
-      const INITIAL_SILENCE_MS   = 1000; // user just clicked mic — cut off fast
-      const FOLLOWUP_SILENCE_MS  = 5000; // after Betty's reply — give time to think
-
-      function armSilenceTimer() {
-        clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, silenceMs);
-      }
-
-      rec.onstart = () => {
-        recording = true;
-        mic.classList.add('rec');
-        gotSpeech = false;
-        armSilenceTimer();
-      };
-      rec.onresult = (e) => {
-        let interim = '', final = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const t = e.results[i][0].transcript;
-          if (e.results[i].isFinal) final += t; else interim += t;
-        }
-        const combined = (base + ' ' + final + ' ' + interim).trim();
-        input.value = combined;
-        if (combined) { gotSpeech = true; armSilenceTimer(); }
-      };
-      rec.onspeechstart = () => { gotSpeech = true; armSilenceTimer(); };
-      rec.onend = () => {
-        clearTimeout(silenceTimer);
-        recording = false;
-        mic.classList.remove('rec');
-        if (gotSpeech && input.value.trim()) {
-          lastInputWasVoice = true;
-          submit();
-        }
-      };
-      rec.onerror = () => {
-        clearTimeout(silenceTimer);
-        recording = false;
-        mic.classList.remove('rec');
-      };
-
       startListening = (autoFollowUp) => {
-        if (recording) return;
+        if (activeRec) return;
         if (!panel.classList.contains('open')) return;
-        base = autoFollowUp ? '' : input.value;
+        const silenceMs = autoFollowUp ? FOLLOWUP_SILENCE_MS : INITIAL_SILENCE_MS;
+        const base = autoFollowUp ? '' : input.value;
         if (autoFollowUp) input.value = '';
-        silenceMs = autoFollowUp ? FOLLOWUP_SILENCE_MS : INITIAL_SILENCE_MS;
-        try { rec.start(); } catch (_) {}
+
+        const rec = new SR();
+        rec.continuous     = true;
+        rec.interimResults = true;
+        rec.lang           = 'en-US';
+        activeRec = rec;
+
+        let gotSpeech    = false;
+        let silenceTimer = null;
+        const armSilenceTimer = () => {
+          clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, silenceMs);
+        };
+
+        rec.onstart = () => {
+          mic.classList.add('rec');
+          armSilenceTimer();
+        };
+        rec.onresult = (e) => {
+          let interim = '', final = '';
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            const t = e.results[i][0].transcript;
+            if (e.results[i].isFinal) final += t; else interim += t;
+          }
+          const combined = (base + ' ' + final + ' ' + interim).trim();
+          input.value = combined;
+          if (combined) { gotSpeech = true; armSilenceTimer(); }
+        };
+        rec.onspeechstart = () => { gotSpeech = true; armSilenceTimer(); };
+        rec.onend = () => {
+          clearTimeout(silenceTimer);
+          mic.classList.remove('rec');
+          activeRec = null;
+          if (gotSpeech && input.value.trim()) {
+            lastInputWasVoice = true;
+            submit();
+          }
+        };
+        rec.onerror = () => {
+          clearTimeout(silenceTimer);
+          mic.classList.remove('rec');
+          activeRec = null;
+        };
+
+        try { rec.start(); }
+        catch (_) { activeRec = null; mic.classList.remove('rec'); }
       };
 
       mic.addEventListener('click', () => {
-        if (recording) { try { rec.stop(); } catch (_) {} return; }
+        if (activeRec) { try { activeRec.stop(); } catch (_) {} return; }
         startListening(false);
       });
     } else {
