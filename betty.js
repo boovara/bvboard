@@ -217,8 +217,8 @@
     // Creates a fresh SpeechRecognition per session — reusing a single
     // instance caused Chrome to end the follow-up session after ~1s.
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const INITIAL_SILENCE_MS  = 1000; // first tap on mic — cut off fast
-    const FOLLOWUP_SILENCE_MS = 5000; // after Betty's reply — give thinking time
+    const POST_SPEECH_SILENCE_MS   = 1000; // silence needed AFTER the user has started talking
+    const FOLLOWUP_WAIT_TO_SPEAK_MS = 5000; // how long to wait for the user to START talking after Betty's reply
     let activeRec = null;
     let startListening = () => {};
 
@@ -226,7 +226,10 @@
       startListening = (autoFollowUp) => {
         if (activeRec) return;
         if (!panel.classList.contains('open')) return;
-        const silenceMs = autoFollowUp ? FOLLOWUP_SILENCE_MS : INITIAL_SILENCE_MS;
+        // Pre-speech window: initial tap is aggressive (1s). Auto-follow-up
+        // gives the user up to 5s to start speaking. Once speech is detected,
+        // both modes switch to a tight 1s "done speaking" window.
+        const preSpeechMs = autoFollowUp ? FOLLOWUP_WAIT_TO_SPEAK_MS : POST_SPEECH_SILENCE_MS;
         const base = autoFollowUp ? '' : input.value;
         if (autoFollowUp) input.value = '';
 
@@ -240,7 +243,8 @@
         let silenceTimer = null;
         const armSilenceTimer = () => {
           clearTimeout(silenceTimer);
-          silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, silenceMs);
+          const ms = gotSpeech ? POST_SPEECH_SILENCE_MS : preSpeechMs;
+          silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, ms);
         };
 
         rec.onstart = () => {
