@@ -1460,45 +1460,21 @@ input.nt-range::-webkit-slider-thumb {
     history.push({ role: 'user', content: text });
 
     const typingEl = showTyping();
-    let botEl = null;
-    let acc = '';
-
     try {
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ messages: history }),
       });
-      if (!resp.ok || !resp.body) {
-        typingEl.textContent = 'Error: ' + resp.status;
+      const data = await resp.json().catch(() => ({}));
+      typingEl.remove();
+      if (!resp.ok) {
+        addMsg('bot', 'Error: ' + (data.error || resp.status));
         return;
       }
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) !== -1) {
-          const evt = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const dataLine = evt.split('\n').find(l => l.startsWith('data: '));
-          if (!dataLine) continue;
-          try {
-            const json = JSON.parse(dataLine.slice(6));
-            if (json.text) {
-              if (!botEl) { typingEl.remove(); botEl = addMsg('bot', ''); }
-              acc += json.text;
-              botEl.textContent = acc;
-              log.scrollTop = log.scrollHeight;
-            }
-          } catch {}
-        }
-      }
-      if (botEl && acc) history.push({ role: 'assistant', content: acc });
-      else typingEl.textContent = '(no response)';
+      const text = data.text || '(no response)';
+      addMsg('bot', text);
+      if (data.text) history.push({ role: 'assistant', content: data.text });
     } catch (e) {
       typingEl.textContent = 'Error: ' + e.message;
     }

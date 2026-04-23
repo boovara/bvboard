@@ -196,14 +196,8 @@ export default async function handler(req, res) {
     `Current Airtable snapshot (today=${snapshot.today}, weekday=${snapshot.weekday}):\n\n`
     + JSON.stringify(snapshot, null, 2);
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
-
-  let upstream;
   try {
-    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'content-type':      'application/json',
@@ -213,7 +207,6 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model:      MODEL,
         max_tokens: 1024,
-        stream:     true,
         system: [
           { type: 'text', text: SYSTEM_INSTRUCTIONS },
           { type: 'text', text: snapshotText, cache_control: { type: 'ephemeral' } },
@@ -221,43 +214,14 @@ export default async function handler(req, res) {
         messages,
       }),
     });
-  } catch (e) {
-    res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
-    return res.end();
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    const t = await upstream.text().catch(() => '');
-    res.write(`event: error\ndata: ${JSON.stringify({ error: `Anthropic ${upstream.status}: ${t}` })}\n\n`);
-    return res.end();
-  }
-
-  const reader  = upstream.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) !== -1) {
-        const evt = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        const dataLine = evt.split('\n').find(l => l.startsWith('data: '));
-        if (!dataLine) continue;
-        try {
-          const json = JSON.parse(dataLine.slice(6));
-          if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-            res.write(`data: ${JSON.stringify({ text: json.delta.text })}\n\n`);
-          } else if (json.type === 'message_stop') {
-            res.write(`event: done\ndata: {}\n\n`);
-          }
-        } catch {}
-      }
+    if (!upstream.ok) {
+      const t = await upstream.text().catch(() => '');
+      return res.status(502).json({ error: `Anthropic ${upstream.status}: ${t}` });
     }
+    const data = await upstream.json();
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    return res.status(200).json({ text });
   } catch (e) {
-    res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
+    return res.status(500).json({ error: e.message });
   }
-  res.end();
 }
