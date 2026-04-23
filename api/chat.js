@@ -156,10 +156,131 @@ Key conventions in the data:
 - today's date and weekday are provided at the top of the snapshot — use them for relative queries ("today", "this week", "Friday").
 - Reference crew members by first name. Keep answers short unless the user asks for detail.
 
-When the user asks you to make a change (add a task, confirm a crew member, reschedule an event, send Slack messages, etc.), first check the caller's role:
-- If the caller is not signed in (role is null), reply: "Sign in with your PIN first — the mic in the header left of my name opens a PIN pad." and do not attempt the action.
-- If the caller is "crew" (not admin), politely explain that edits require admin access.
-- If the caller is "admin", acknowledge the intent but note that tool-use is not yet wired up (coming in the next update). Stage the action by summarizing what you would do.`;
+You can perform actions using tools when the caller's role is "admin". If the caller is not signed in (role is null) or is "crew", do not call tools — politely tell them to sign in as admin first. When a tool succeeds, briefly confirm what you did.`;
+
+// ── Tool definitions ─────────────────────────────────────────────────────
+// Each tool has: { name, description, input_schema, gated, execute(input, role, authHeader) }
+// gated=true means Betty proposes the action; client shows Confirm/Cancel.
+const TOOLS = [
+  {
+    name: 'add_task',
+    description: 'Add a new task to the BV Board Tasks section.',
+    gated: false,
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The task description' },
+      },
+      required: ['text'],
+    },
+    async execute(input) {
+      const text = String(input.text || '').trim();
+      if (!text) return { error: 'Empty task text' };
+      const now = new Date().toISOString();
+      const localId = 'b_' + Math.random().toString(36).slice(2, 10);
+      const r = await fetch(`https://api.airtable.com/v0/${AT_BASE}/${TABLES.bvBoard}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${AT_TOKEN}`,
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({
+          fields: {
+            Section:   'tasks',
+            LocalID:   localId,
+            Text:      text,
+            Name:      text.slice(0, 60),
+            Done:      false,
+            UpdatedAt: now,
+          },
+        }),
+      });
+      if (!r.ok) return { error: `Airtable ${r.status}: ${await r.text()}` };
+      _snapshot = null; // invalidate cache so next read reflects the new task
+      return { ok: true, message: `Added task: "${text}"` };
+    },
+  },
+];
+
+function toolsForRole(role) {
+  if (role !== 'admin') return []; // only admins get write tools
+  return TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+}
+
+async function runToolLoop(messages, role, authHeader) {
+  // Loop: call Anthropic → execute any safe tool_use → feed results back → repeat.
+  // Caps at 5 iterations as a safety valve.
+  let workingMessages = messages.slice();
+  for (let iter = 0; iter < 5; iter++) {
+    const snapshot = await getSnapshot(false);
+    const snapshotText =
+      `Current Airtable snapshot (today=${snapshot.today}, weekday=${snapshot.weekday}, caller_role=${role || 'not signed in'}):\n\n`
+      + JSON.stringify(snapshot, null, 2);
+
+    const body = {
+      model:      MODEL,
+      max_tokens: 1024,
+      system: [
+        { type: 'text', text: SYSTEM_INSTRUCTIONS },
+        { type: 'text', text: snapshotText, cache_control: { type: 'ephemeral' } },
+      ],
+      messages: workingMessages,
+    };
+    const tools = toolsForRole(role);
+    if (tools.length) body.tools = tools;
+
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type':      'application/json',
+        'x-api-key':         ANT_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!upstream.ok) {
+      const t = await upstream.text().catch(() => '');
+      throw new Error(`Anthropic ${upstream.status}: ${t}`);
+    }
+    const data = await upstream.json();
+    const content = data.content || [];
+
+    // Collect any tool_use blocks
+    const toolUses = content.filter(b => b.type === 'tool_use');
+    if (!toolUses.length) {
+      const text = content.filter(b => b.type === 'text').map(b => b.text).join('');
+      return { text };
+    }
+
+    // Append the assistant message with its tool_use blocks to the conversation
+    workingMessages.push({ role: 'assistant', content });
+
+    // Execute each tool and collect tool_result blocks
+    const toolResults = [];
+    for (const use of toolUses) {
+      const def = TOOLS.find(t => t.name === use.name);
+      if (!def) {
+        toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: `Unknown tool: ${use.name}`, is_error: true });
+        continue;
+      }
+      try {
+        const result = await def.execute(use.input || {}, role, authHeader);
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: use.id,
+          content: typeof result === 'string' ? result : JSON.stringify(result),
+          is_error: !!result.error,
+        });
+      } catch (e) {
+        toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: e.message, is_error: true });
+      }
+    }
+
+    workingMessages.push({ role: 'user', content: toolResults });
+    // Loop back to Anthropic with tool results
+  }
+  return { text: '(too many tool iterations — stopping)' };
+}
 
 export default async function handler(req, res) {
   // GET /api/chat?debug=1 → size breakdown per section (no Anthropic call).
@@ -197,40 +318,13 @@ export default async function handler(req, res) {
 
   const user = verify(req);
   const role = user?.role || null;
+  const authHeader = req.headers['authorization'] || '';
 
-  let snapshot;
-  try { snapshot = await getSnapshot(!!refresh); }
-  catch (e) { return res.status(500).json({ error: e.message }); }
-
-  const snapshotText =
-    `Current Airtable snapshot (today=${snapshot.today}, weekday=${snapshot.weekday}, caller_role=${role || 'not signed in'}):\n\n`
-    + JSON.stringify(snapshot, null, 2);
+  if (refresh) _snapshot = null;
 
   try {
-    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type':      'application/json',
-        'x-api-key':         ANT_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model:      MODEL,
-        max_tokens: 1024,
-        system: [
-          { type: 'text', text: SYSTEM_INSTRUCTIONS },
-          { type: 'text', text: snapshotText, cache_control: { type: 'ephemeral' } },
-        ],
-        messages,
-      }),
-    });
-    if (!upstream.ok) {
-      const t = await upstream.text().catch(() => '');
-      return res.status(502).json({ error: `Anthropic ${upstream.status}: ${t}` });
-    }
-    const data = await upstream.json();
-    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-    return res.status(200).json({ text });
+    const result = await runToolLoop(messages, role, authHeader);
+    return res.status(200).json({ text: result.text, role });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
