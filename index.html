@@ -1298,11 +1298,13 @@ input.nt-range::-webkit-slider-thumb {
   letter-spacing: 1px; text-transform: uppercase; margin: 0;
 }
 #chat-head h3 em { color: #7ee8a2; font-style: normal; }
-#chat-close {
+#chat-close, #chat-voice-toggle {
   background: none; border: none; color: #6b7280; cursor: pointer;
-  font-size: 20px; line-height: 1; padding: 4px 8px;
+  font-size: 16px; line-height: 1; padding: 4px 8px;
 }
-#chat-close:hover { color: #e8eaf0; }
+#chat-close { font-size: 20px; }
+#chat-close:hover, #chat-voice-toggle:hover { color: #e8eaf0; }
+#chat-voice-toggle.off { opacity: .5; }
 
 #chat-log {
   flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
@@ -1375,7 +1377,10 @@ input.nt-range::-webkit-slider-thumb {
 <div id="chat-panel" role="dialog" aria-label="Betty Assistant">
   <div id="chat-head">
     <h3>Ask <em>Betty</em></h3>
-    <button id="chat-close" aria-label="Close">×</button>
+    <div style="display:flex; gap:4px; align-items:center;">
+      <button id="chat-voice-toggle" aria-label="Toggle voice" title="Toggle voice replies">🔊</button>
+      <button id="chat-close" aria-label="Close">×</button>
+    </div>
   </div>
   <div id="chat-log"></div>
   <div id="chat-input-row">
@@ -1413,9 +1418,56 @@ input.nt-range::-webkit-slider-thumb {
   const input  = document.getElementById('chat-input');
   const send   = document.getElementById('chat-send');
   const mic    = document.getElementById('chat-mic');
+  const voiceBtn = document.getElementById('chat-voice-toggle');
 
   const history = []; // [{role, content}]
   let introShown = false;
+  let lastInputWasVoice = false;
+
+  // ── Text-to-speech (Web Speech API) ──────────────────────────────────────
+  const TTS = window.speechSynthesis || null;
+  let voiceOn = localStorage.getItem('bettyVoiceOn') !== '0';
+  let preferredVoice = null;
+
+  function pickVoice() {
+    if (!TTS) return;
+    const voices = TTS.getVoices();
+    if (!voices.length) return;
+    const en = voices.filter(v => v.lang && v.lang.startsWith('en'));
+    preferredVoice =
+      en.find(v => /aria|jenny|natural|neural/i.test(v.name)) ||
+      en.find(v => v.lang === 'en-US') ||
+      en[0] || voices[0];
+  }
+  if (TTS) {
+    pickVoice();
+    TTS.onvoiceschanged = pickVoice;
+  } else {
+    voiceBtn.style.display = 'none';
+  }
+
+  function updateVoiceBtn() {
+    voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
+    voiceBtn.classList.toggle('off', !voiceOn);
+  }
+  updateVoiceBtn();
+
+  voiceBtn.addEventListener('click', () => {
+    voiceOn = !voiceOn;
+    localStorage.setItem('bettyVoiceOn', voiceOn ? '1' : '0');
+    updateVoiceBtn();
+    if (!voiceOn && TTS) TTS.cancel();
+  });
+
+  function speak(text) {
+    if (!TTS || !voiceOn || !text) return;
+    TTS.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    if (preferredVoice) u.voice = preferredVoice;
+    u.rate = 1.05;
+    u.pitch = 1.0;
+    TTS.speak(u);
+  }
 
   function renderIntro() {
     if (introShown) return;
@@ -1454,6 +1506,9 @@ input.nt-range::-webkit-slider-thumb {
   async function submit() {
     const text = input.value.trim();
     if (!text) return;
+    if (TTS) TTS.cancel();
+    const wasVoice = lastInputWasVoice;
+    lastInputWasVoice = false;
     input.value = '';
     input.style.height = 'auto';
     addMsg('user', text);
@@ -1474,7 +1529,10 @@ input.nt-range::-webkit-slider-thumb {
       }
       const text = data.text || '(no response)';
       addMsg('bot', text);
-      if (data.text) history.push({ role: 'assistant', content: data.text });
+      if (data.text) {
+        history.push({ role: 'assistant', content: data.text });
+        if (wasVoice) speak(data.text);
+      }
     } catch (e) {
       typingEl.textContent = 'Error: ' + e.message;
     }
@@ -1520,7 +1578,10 @@ input.nt-range::-webkit-slider-thumb {
     rec.onend = () => {
       recording = false;
       mic.classList.remove('rec');
-      if (input.value.trim()) submit();
+      if (input.value.trim()) {
+        lastInputWasVoice = true;
+        submit();
+      }
     };
     rec.onerror = () => { recording = false; mic.classList.remove('rec'); };
     mic.addEventListener('click', () => {
