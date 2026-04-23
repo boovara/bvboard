@@ -226,11 +226,13 @@
       let base = '';
       let silenceTimer = null;
       let gotSpeech = false;
-      const SILENCE_MS = 5000;
+      let silenceMs = 1000; // set per startListening call
+      const INITIAL_SILENCE_MS   = 1000; // user just clicked mic — cut off fast
+      const FOLLOWUP_SILENCE_MS  = 5000; // after Betty's reply — give time to think
 
       function armSilenceTimer() {
         clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, SILENCE_MS);
+        silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, silenceMs);
       }
 
       rec.onstart = () => {
@@ -270,6 +272,7 @@
         if (!panel.classList.contains('open')) return;
         base = autoFollowUp ? '' : input.value;
         if (autoFollowUp) input.value = '';
+        silenceMs = autoFollowUp ? FOLLOWUP_SILENCE_MS : INITIAL_SILENCE_MS;
         try { rec.start(); } catch (_) {}
       };
 
