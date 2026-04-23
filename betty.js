@@ -46,17 +46,45 @@
     panel.setAttribute('aria-label', 'Betty Assistant');
     panel.innerHTML =
       '<div id="chat-head">'
-      + '<h3>Ask <em>Betty</em></h3>'
-      + '<div style="display:flex; gap:4px; align-items:center;">'
-      +   '<button id="chat-voice-toggle" aria-label="Toggle voice" title="Toggle voice replies">🔊</button>'
-      +   '<button id="chat-close" aria-label="Close">×</button>'
-      + '</div>'
+      +   '<div style="display:flex; gap:8px; align-items:center;">'
+      +     '<button id="chat-auth-btn" title="Sign in with your PIN">'
+      +       '<span class="dot"></span><span class="label">Sign in</span>'
+      +     '</button>'
+      +     '<h3>Ask <em>Betty</em></h3>'
+      +   '</div>'
+      +   '<div style="display:flex; gap:4px; align-items:center;">'
+      +     '<button id="chat-voice-toggle" aria-label="Toggle voice" title="Toggle voice replies">🔊</button>'
+      +     '<button id="chat-close" aria-label="Close">×</button>'
+      +   '</div>'
       + '</div>'
       + '<div id="chat-log"></div>'
       + '<div id="chat-input-row">'
       +   '<button class="chat-btn mic" id="chat-mic" aria-label="Dictate">' + MIC_SVG + '</button>'
       +   '<textarea id="chat-input" rows="1" placeholder="' + CFG.placeholder.replace(/"/g, '&quot;') + '"></textarea>'
       +   '<button class="chat-btn send" id="chat-send" aria-label="Send">' + SEND_SVG + '</button>'
+      + '</div>'
+      + '<div id="chat-pin-overlay">'
+      +   '<h4>Enter PIN</h4>'
+      +   '<div class="chat-pin-dots">'
+      +     '<div class="chat-pin-dot"></div><div class="chat-pin-dot"></div>'
+      +     '<div class="chat-pin-dot"></div><div class="chat-pin-dot"></div>'
+      +   '</div>'
+      +   '<div class="chat-pin-err"></div>'
+      +   '<div class="chat-pin-pad">'
+      +     '<button class="chat-pin-btn" data-k="1">1</button>'
+      +     '<button class="chat-pin-btn" data-k="2">2</button>'
+      +     '<button class="chat-pin-btn" data-k="3">3</button>'
+      +     '<button class="chat-pin-btn" data-k="4">4</button>'
+      +     '<button class="chat-pin-btn" data-k="5">5</button>'
+      +     '<button class="chat-pin-btn" data-k="6">6</button>'
+      +     '<button class="chat-pin-btn" data-k="7">7</button>'
+      +     '<button class="chat-pin-btn" data-k="8">8</button>'
+      +     '<button class="chat-pin-btn" data-k="9">9</button>'
+      +     '<button class="chat-pin-btn empty"></button>'
+      +     '<button class="chat-pin-btn" data-k="0">0</button>'
+      +     '<button class="chat-pin-btn" data-k="del">⌫</button>'
+      +   '</div>'
+      +   '<button class="chat-pin-cancel">Cancel</button>'
       + '</div>';
     document.body.appendChild(panel);
 
@@ -70,10 +98,117 @@
     const send  = panel.querySelector('#chat-send');
     const mic   = panel.querySelector('#chat-mic');
     const voiceBtn = panel.querySelector('#chat-voice-toggle');
+    const authBtn  = panel.querySelector('#chat-auth-btn');
+    const authLbl  = authBtn.querySelector('.label');
+    const pinOverlay = panel.querySelector('#chat-pin-overlay');
+    const pinDots    = pinOverlay.querySelectorAll('.chat-pin-dot');
+    const pinErr     = pinOverlay.querySelector('.chat-pin-err');
+    const pinPad     = pinOverlay.querySelector('.chat-pin-pad');
+    const pinCancel  = pinOverlay.querySelector('.chat-pin-cancel');
 
     const history = [];
     let introShown = false;
     let lastInputWasVoice = false;
+
+    // ── Auth ───────────────────────────────────────────────────────────────
+    let csToken = localStorage.getItem('cs_token') || '';
+    let csRole  = localStorage.getItem('cs_role')  || '';
+    let pinBuf  = '';
+    let pinCb   = null; // optional callback after successful sign-in
+
+    function updateAuthBtn() {
+      authBtn.classList.remove('admin', 'crew');
+      if (csRole === 'admin') {
+        authBtn.classList.add('admin');
+        authLbl.textContent = 'Admin';
+        authBtn.title = 'Signed in as Admin — click to sign out';
+      } else if (csRole === 'crew') {
+        authBtn.classList.add('crew');
+        authLbl.textContent = 'Crew';
+        authBtn.title = 'Signed in as Crew — click to sign out';
+      } else {
+        authLbl.textContent = 'Sign in';
+        authBtn.title = 'Sign in with your PIN';
+      }
+    }
+    updateAuthBtn();
+
+    function renderPinDots() {
+      pinDots.forEach((d, i) => d.classList.toggle('filled', i < pinBuf.length));
+    }
+    function resetPin(err) {
+      pinBuf = '';
+      renderPinDots();
+      pinErr.textContent = err || '';
+    }
+    function openPinPad(cb) {
+      pinCb = cb || null;
+      resetPin('');
+      pinOverlay.classList.add('open');
+    }
+    function closePinPad() {
+      pinOverlay.classList.remove('open');
+      pinCb = null;
+    }
+
+    async function submitPin() {
+      try {
+        const r = await fetch(CFG.apiBase + '/api/auth', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ pin: pinBuf }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.token) {
+          resetPin(data.error || 'Invalid PIN');
+          return;
+        }
+        csToken = data.token;
+        csRole  = data.role || '';
+        localStorage.setItem('cs_token', csToken);
+        localStorage.setItem('cs_role',  csRole);
+        updateAuthBtn();
+        closePinPad();
+        const cb = pinCb; pinCb = null;
+        if (cb) cb();
+      } catch (e) {
+        resetPin('Network error');
+      }
+    }
+
+    pinPad.addEventListener('click', (e) => {
+      const btn = e.target.closest('.chat-pin-btn');
+      if (!btn) return;
+      const k = btn.dataset.k;
+      if (!k) return;
+      if (k === 'del') {
+        pinBuf = pinBuf.slice(0, -1);
+        pinErr.textContent = '';
+        renderPinDots();
+      } else if (pinBuf.length < 4) {
+        pinBuf += k;
+        pinErr.textContent = '';
+        renderPinDots();
+        if (pinBuf.length === 4) submitPin();
+      }
+    });
+    pinCancel.addEventListener('click', closePinPad);
+
+    authBtn.addEventListener('click', () => {
+      if (csToken) {
+        // Sign out
+        csToken = ''; csRole = '';
+        localStorage.removeItem('cs_token');
+        localStorage.removeItem('cs_role');
+        updateAuthBtn();
+      } else {
+        openPinPad();
+      }
+    });
+
+    function authHeaders() {
+      return csToken ? { Authorization: 'Bearer ' + csToken } : {};
+    }
 
     // ── TTS (ElevenLabs via /api/tts) ──────────────────────────────────────
     let voiceOn = localStorage.getItem('bettyVoiceOn') !== '0';
@@ -104,7 +239,7 @@
       try {
         const r = await fetch(CFG.apiBase + '/api/tts', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
           body: JSON.stringify({ text }),
         });
         if (!r.ok) { onEnd && onEnd(); return; }
@@ -174,7 +309,7 @@
       try {
         const resp = await fetch(CFG.apiBase + '/api/chat', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
           body: JSON.stringify({ messages: history }),
         });
         const data = await resp.json().catch(() => ({}));

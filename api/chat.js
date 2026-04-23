@@ -7,6 +7,8 @@
  * hit the Anthropic prompt cache.
  */
 
+const verify = require('./_verify');
+
 const AT_TOKEN = process.env.AT_ACCESS_TOKEN;
 const AT_BASE  = 'app5la8omfQHS9pvf';
 const ANT_KEY  = process.env.ANTHROPIC_API_KEY;
@@ -152,7 +154,12 @@ Key conventions in the data:
 - Projects have a QB Code field; a project without one is missing a QB code.
 - Supply items live in bvBoard.supply. An item is "ordered" or "arrived" based on its fields.
 - today's date and weekday are provided at the top of the snapshot — use them for relative queries ("today", "this week", "Friday").
-- Reference crew members by first name. Keep answers short unless the user asks for detail.`;
+- Reference crew members by first name. Keep answers short unless the user asks for detail.
+
+When the user asks you to make a change (add a task, confirm a crew member, reschedule an event, send Slack messages, etc.), first check the caller's role:
+- If the caller is not signed in (role is null), reply: "Sign in with your PIN first — the mic in the header left of my name opens a PIN pad." and do not attempt the action.
+- If the caller is "crew" (not admin), politely explain that edits require admin access.
+- If the caller is "admin", acknowledge the intent but note that tool-use is not yet wired up (coming in the next update). Stage the action by summarizing what you would do.`;
 
 export default async function handler(req, res) {
   // GET /api/chat?debug=1 → size breakdown per section (no Anthropic call).
@@ -188,12 +195,15 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'messages array required' });
   }
 
+  const user = verify(req);
+  const role = user?.role || null;
+
   let snapshot;
   try { snapshot = await getSnapshot(!!refresh); }
   catch (e) { return res.status(500).json({ error: e.message }); }
 
   const snapshotText =
-    `Current Airtable snapshot (today=${snapshot.today}, weekday=${snapshot.weekday}):\n\n`
+    `Current Airtable snapshot (today=${snapshot.today}, weekday=${snapshot.weekday}, caller_role=${role || 'not signed in'}):\n\n`
     + JSON.stringify(snapshot, null, 2);
 
   try {

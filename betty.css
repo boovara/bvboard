@@ -106,3 +106,44 @@
   #chat-panel { right: 10px; bottom: 10px; width: calc(100vw - 20px); height: calc(100vh - 20px); }
   #chat-fab { right: 10px; bottom: 10px; }
 }
+
+/* ── PIN pad ───────────────────────────────────────────────────── */
+#chat-auth-btn {
+  background: none; border: none; cursor: pointer; padding: 4px 8px;
+  font-size: 13px; font-family: 'Syne', sans-serif; letter-spacing: .5px;
+  color: #6b7280; text-transform: uppercase;
+}
+#chat-auth-btn:hover { color: #e8eaf0; }
+#chat-auth-btn .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #6b7280; margin-right: 5px; vertical-align: middle; }
+#chat-auth-btn.admin .dot { background: #7ee8a2; }
+#chat-auth-btn.crew  .dot { background: #38b2e0; }
+
+#chat-pin-overlay {
+  position: absolute; inset: 0; background: rgba(14,16,20,.92);
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; z-index: 5;
+}
+#chat-pin-overlay.open { display: flex; }
+#chat-pin-overlay h4 {
+  font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px;
+  letter-spacing: 1.5px; text-transform: uppercase; color: #e8eaf0; margin: 0;
+}
+.chat-pin-dots { display: flex; gap: 12px; }
+.chat-pin-dot {
+  width: 14px; height: 14px; border-radius: 50%; border: 1px solid #343b48; background: transparent;
+}
+.chat-pin-dot.filled { background: #7ee8a2; border-color: #7ee8a2; }
+.chat-pin-err { color: #e05c5c; font-size: 12px; min-height: 16px; }
+.chat-pin-pad { display: grid; grid-template-columns: repeat(3, 56px); gap: 8px; }
+.chat-pin-btn {
+  width: 56px; height: 56px; border-radius: 12px;
+  background: #232830; border: 1px solid #2a2f3a; color: #e8eaf0;
+  font-size: 20px; font-family: 'DM Sans', sans-serif; cursor: pointer;
+}
+.chat-pin-btn:active { background: #2a2f3a; }
+.chat-pin-btn.empty { visibility: hidden; }
+.chat-pin-cancel {
+  background: none; border: none; color: #6b7280; cursor: pointer;
+  font-size: 12px; font-family: 'DM Sans', sans-serif; text-transform: uppercase; letter-spacing: 1px;
+}
+.chat-pin-cancel:hover { color: #e8eaf0; }
