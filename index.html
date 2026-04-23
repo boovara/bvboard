@@ -1424,27 +1424,10 @@ input.nt-range::-webkit-slider-thumb {
   let introShown = false;
   let lastInputWasVoice = false;
 
-  // ── Text-to-speech (Web Speech API) ──────────────────────────────────────
-  const TTS = window.speechSynthesis || null;
+  // ── Text-to-speech (ElevenLabs via /api/tts) + continuous listening ──────
   let voiceOn = localStorage.getItem('bettyVoiceOn') !== '0';
-  let preferredVoice = null;
-
-  function pickVoice() {
-    if (!TTS) return;
-    const voices = TTS.getVoices();
-    if (!voices.length) return;
-    const en = voices.filter(v => v.lang && v.lang.startsWith('en'));
-    preferredVoice =
-      en.find(v => /aria|jenny|natural|neural/i.test(v.name)) ||
-      en.find(v => v.lang === 'en-US') ||
-      en[0] || voices[0];
-  }
-  if (TTS) {
-    pickVoice();
-    TTS.onvoiceschanged = pickVoice;
-  } else {
-    voiceBtn.style.display = 'none';
-  }
+  const audioEl = new Audio();
+  let currentAudioUrl = null;
 
   function updateVoiceBtn() {
     voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
@@ -1456,17 +1439,33 @@ input.nt-range::-webkit-slider-thumb {
     voiceOn = !voiceOn;
     localStorage.setItem('bettyVoiceOn', voiceOn ? '1' : '0');
     updateVoiceBtn();
-    if (!voiceOn && TTS) TTS.cancel();
+    if (!voiceOn) stopAudio();
   });
 
-  function speak(text) {
-    if (!TTS || !voiceOn || !text) return;
-    TTS.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    if (preferredVoice) u.voice = preferredVoice;
-    u.rate = 1.05;
-    u.pitch = 1.0;
-    TTS.speak(u);
+  function stopAudio() {
+    try { audioEl.pause(); audioEl.currentTime = 0; } catch {}
+    if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null; }
+  }
+
+  async function speak(text, onEnd) {
+    if (!voiceOn || !text) { onEnd && onEnd(); return; }
+    stopAudio();
+    try {
+      const r = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) { onEnd && onEnd(); return; }
+      const blob = await r.blob();
+      currentAudioUrl = URL.createObjectURL(blob);
+      audioEl.src = currentAudioUrl;
+      audioEl.onended = () => { stopAudio(); onEnd && onEnd(); };
+      audioEl.onerror = () => { stopAudio(); onEnd && onEnd(); };
+      await audioEl.play().catch(() => { onEnd && onEnd(); });
+    } catch {
+      onEnd && onEnd();
+    }
   }
 
   function renderIntro() {
@@ -1506,7 +1505,7 @@ input.nt-range::-webkit-slider-thumb {
   async function submit() {
     const text = input.value.trim();
     if (!text) return;
-    if (TTS) TTS.cancel();
+    stopAudio();
     const wasVoice = lastInputWasVoice;
     lastInputWasVoice = false;
     input.value = '';
@@ -1531,7 +1530,7 @@ input.nt-range::-webkit-slider-thumb {
       addMsg('bot', text);
       if (data.text) {
         history.push({ role: 'assistant', content: data.text });
-        if (wasVoice) speak(data.text);
+        if (wasVoice) speak(data.text, () => startListening(true));
       }
     } catch (e) {
       typingEl.textContent = 'Error: ' + e.message;
@@ -1557,39 +1556,71 @@ input.nt-range::-webkit-slider-thumb {
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   });
 
-  // ── Dictation via Web Speech API ─────────────────────────────────────────
+  // ── Dictation + continuous-listen w/ 5s silence timeout ─────────────────
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let startListening = () => {};
   if (SR) {
     const rec = new SR();
-    rec.continuous = false;
+    rec.continuous = true;
     rec.interimResults = true;
     rec.lang = 'en-US';
+
     let recording = false;
     let base = '';
+    let silenceTimer = null;
+    let gotSpeech = false;
+    const SILENCE_MS = 5000;
+
+    function armSilenceTimer() {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        try { rec.stop(); } catch {}
+      }, SILENCE_MS);
+    }
+
+    rec.onstart = () => {
+      recording = true;
+      mic.classList.add('rec');
+      gotSpeech = false;
+      armSilenceTimer();
+    };
     rec.onresult = (e) => {
-      let interim = '';
-      let final = '';
+      let interim = '', final = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
         if (e.results[i].isFinal) final += t; else interim += t;
       }
-      input.value = (base + ' ' + final + ' ' + interim).trim();
+      const combined = (base + ' ' + final + ' ' + interim).trim();
+      input.value = combined;
+      if (combined) { gotSpeech = true; armSilenceTimer(); }
     };
+    rec.onspeechstart = () => { gotSpeech = true; armSilenceTimer(); };
     rec.onend = () => {
+      clearTimeout(silenceTimer);
       recording = false;
       mic.classList.remove('rec');
-      if (input.value.trim()) {
+      if (gotSpeech && input.value.trim()) {
         lastInputWasVoice = true;
         submit();
       }
     };
-    rec.onerror = () => { recording = false; mic.classList.remove('rec'); };
+    rec.onerror = () => {
+      clearTimeout(silenceTimer);
+      recording = false;
+      mic.classList.remove('rec');
+    };
+
+    startListening = (autoFollowUp) => {
+      if (recording) return;
+      if (!panel.classList.contains('open')) return;
+      base = autoFollowUp ? '' : input.value;
+      if (autoFollowUp) input.value = '';
+      try { rec.start(); } catch {}
+    };
+
     mic.addEventListener('click', () => {
-      if (recording) { rec.stop(); return; }
-      base = input.value;
-      recording = true;
-      mic.classList.add('rec');
-      try { rec.start(); } catch { recording = false; mic.classList.remove('rec'); }
+      if (recording) { try { rec.stop(); } catch {} return; }
+      startListening(false);
     });
   } else {
     mic.title = 'Dictation not supported in this browser';
