@@ -105,10 +105,17 @@ async function buildSnapshot() {
     'SETUP – HQ Call Time','STRIKE – HQ Call Time',
   ];
 
-  const projectSkip = [
-    'DB Project Path','Detail Sheets','Final Renders','Rough Mockups',
-    'Attachments','SETUP TIMELINE NOTES','STRIKE TIMELINE NOTES',
+  const projectKeep = [
+    'Name','PID','QB Code','Status','Event Date','Client','Venue','City',
+    'Project Value','Deposit Received','Final Payment Received',
+    'Notes','Type','Created','Last Modified',
   ];
+  // Only keep projects whose status is operationally active (drop finished/cancelled).
+  const activeProjects = projects.filter(r => {
+    const s = (r.fields?.Status || '').toString().toLowerCase();
+    return !s.includes('completed') && !s.includes('canceled') && !s.includes('cancelled')
+        && !s.includes('closed') && !s.includes('no response') && !s.includes('send thank you');
+  });
 
   const daysOffRecent = daysOff.filter(r => {
     const d = r.fields?.Date || r.fields?.DATE || r.fields?.['Day Off Date'];
@@ -119,7 +126,7 @@ async function buildSnapshot() {
     today,
     weekday,
     bvBoard:      bySection,
-    projects:     compact(projects, { skip: projectSkip }),
+    projects:     compact(activeProjects, { keep: projectKeep }),
     amazonOrders: compact(amazonOrders),
     crewSchedule: compact(crewScheduleTrim, { keep: scheduleKeep }),
     crew:         compact(crew),
@@ -148,6 +155,31 @@ Key conventions in the data:
 - Reference crew members by first name. Keep answers short unless the user asks for detail.`;
 
 export default async function handler(req, res) {
+  // GET /api/chat?debug=1 → size breakdown per section (no Anthropic call).
+  if (req.method === 'GET' && req.query?.debug) {
+    try {
+      const snap = await getSnapshot(true);
+      const sizes = Object.fromEntries(
+        Object.entries(snap).map(([k, v]) => [k, JSON.stringify(v).length])
+      );
+      return res.status(200).json({
+        totalChars: JSON.stringify(snap).length,
+        approxTokens: Math.round(JSON.stringify(snap).length / 4),
+        sectionChars: sizes,
+        counts: {
+          tasks:        snap.bvBoard.tasks.length,
+          supply:       snap.bvBoard.supply.length,
+          projectCodes: snap.bvBoard.projectCodes.length,
+          notices:      snap.bvBoard.notices.length,
+          projects:     snap.projects.length,
+          amazonOrders: snap.amazonOrders.length,
+          crewSchedule: snap.crewSchedule.length,
+          crew:         snap.crew.length,
+          daysOff:      snap.daysOff.length,
+        },
+      });
+    } catch (e) { return res.status(500).json({ error: e.message }); }
+  }
   if (req.method !== 'POST') return res.status(405).end();
   if (!ANT_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' });
 
