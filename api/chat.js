@@ -43,15 +43,21 @@ async function atFetchAll(tableId) {
   return out;
 }
 
-// Strip empty fields and attachment blobs (keep URLs only).
-function compact(records) {
+// Strip empty fields, attachment blobs, and optional-skip field names.
+function compact(records, opts = {}) {
+  const skip = new Set(opts.skip || []);
+  const keep = opts.keep ? new Set(opts.keep) : null;
   return records.map(r => {
     const f = {};
     for (const [k, v] of Object.entries(r.fields || {})) {
+      if (skip.has(k)) continue;
+      if (keep && !keep.has(k)) continue;
       if (v === '' || v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       if (Array.isArray(v) && v[0] && typeof v[0] === 'object' && v[0].url) {
         f[k] = v.map(a => a.url).filter(Boolean);
+      } else if (typeof v === 'string' && v.length > 500) {
+        f[k] = v.slice(0, 500) + '…';
       } else {
         f[k] = v;
       }
@@ -64,31 +70,60 @@ async function buildSnapshot() {
   const [bvBoard, projects, amazonOrders, crewSchedule, crew, daysOff] =
     await Promise.all(Object.values(TABLES).map(atFetchAll));
 
-  // Split BV Board by Section into tasks / supply / projectCodes / notices.
   const board = compact(bvBoard);
-  const bySection = { tasks: [], supply: [], projectCodes: [], notices: [], other: [] };
+  const bySection = { tasks: [], supply: [], projectCodes: [], notices: [] };
   for (const rec of board) {
     const s = (rec.Section || '').toLowerCase();
     if (s === 'tasks')         bySection.tasks.push(rec);
     else if (s === 'supply')   bySection.supply.push(rec);
     else if (s === 'projects') bySection.projectCodes.push(rec);
     else if (s === 'notices')  bySection.notices.push(rec);
-    else                       bySection.other.push(rec);
   }
 
   const now = new Date();
   const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
   const today = now.toISOString().slice(0, 10);
 
+  // CREW SCHEDULE: only keep rows in a 14-day-back / 60-day-forward window.
+  const minDate = new Date(now); minDate.setDate(minDate.getDate() - 14);
+  const maxDate = new Date(now); maxDate.setDate(maxDate.getDate() + 60);
+  const inWindow = (dstr) => {
+    if (!dstr) return false;
+    const d = new Date(dstr);
+    return d >= minDate && d <= maxDate;
+  };
+  const crewScheduleTrim = crewSchedule.filter(r => inWindow(r.fields?.DATE));
+
+  const scheduleKeep = [
+    'DATE','DAY','EVENT','TYPE','VENUE','CITY','NOTES',
+    'SETUP - Tentative','SETUP – Confirmed Crew','SETUP – Crew Needed',
+    'STRIKE - Tentative','STRIKE – Confirmed Crew','STRIKE – Crew Needed',
+    'SHOP - Tentative','SHOP - Confirmed','SHOP – Crew Needed',
+    'HQ - Tentative','HQ - Confirmed',
+    'DAY OFF CREW','DAY OFF DATE',
+    'PID (from Project Link)','Status (from Project Link)',
+    'SETUP – HQ Call Time','STRIKE – HQ Call Time',
+  ];
+
+  const projectSkip = [
+    'DB Project Path','Detail Sheets','Final Renders','Rough Mockups',
+    'Attachments','SETUP TIMELINE NOTES','STRIKE TIMELINE NOTES',
+  ];
+
+  const daysOffRecent = daysOff.filter(r => {
+    const d = r.fields?.Date || r.fields?.DATE || r.fields?.['Day Off Date'];
+    return !d || inWindow(d);
+  });
+
   return {
     today,
     weekday,
-    bvBoard: bySection,
-    projects:     compact(projects),
+    bvBoard:      bySection,
+    projects:     compact(projects, { skip: projectSkip }),
     amazonOrders: compact(amazonOrders),
-    crewSchedule: compact(crewSchedule),
+    crewSchedule: compact(crewScheduleTrim, { keep: scheduleKeep }),
     crew:         compact(crew),
-    daysOff:      compact(daysOff),
+    daysOff:      compact(daysOffRecent),
   };
 }
 
