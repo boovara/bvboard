@@ -460,33 +460,39 @@
     const INITIAL_POST_SPEECH_MS    = 1500;  // click-mic: tight cutoff after the user finishes
     const FOLLOWUP_POST_SPEECH_MS   = 2500;  // after Betty's reply: allow longer pauses mid-sentence
     const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000; // generous window for the user to START talking after Betty's reply
-    let activeRec = null;
+    // Session state survives across recognizer auto-restarts — iOS Safari
+    // ends SR aggressively even with continuous=true, so we relaunch until
+    // we actually hear speech or hit a hard deadline.
+    let session = null;
+
+    function endSession(submitIfSpeech) {
+      if (!session) return;
+      clearTimeout(session.silenceTimer);
+      clearTimeout(session.deadlineTimer);
+      mic.classList.remove('rec');
+      const s = session; session = null;
+      if (submitIfSpeech && s.gotSpeech && input.value.trim()) {
+        lastInputWasVoice = true;
+        submit();
+      }
+    }
+
     let startListening = () => {};
 
     if (SR) {
-      startListening = (autoFollowUp) => {
-        if (activeRec) return;
-        if (!panel.classList.contains('open')) return;
-        // Pre-speech window: initial tap is aggressive (1s). Auto-follow-up
-        // gives the user up to 5s to start speaking. Once speech is detected,
-        // both modes switch to a tight 1s "done speaking" window.
-        const preSpeechMs  = autoFollowUp ? FOLLOWUP_WAIT_TO_SPEAK_MS : INITIAL_POST_SPEECH_MS;
-        const postSpeechMs = autoFollowUp ? FOLLOWUP_POST_SPEECH_MS   : INITIAL_POST_SPEECH_MS;
-        const base = autoFollowUp ? '' : input.value;
-        if (autoFollowUp) input.value = '';
-
+      function spawnRec() {
+        if (!session) return;
         const rec = new SR();
         rec.continuous     = true;
         rec.interimResults = true;
         rec.lang           = 'en-US';
-        activeRec = rec;
+        session.rec = rec;
 
-        let gotSpeech    = false;
-        let silenceTimer = null;
         const armSilenceTimer = () => {
-          clearTimeout(silenceTimer);
-          const ms = gotSpeech ? postSpeechMs : preSpeechMs;
-          silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, ms);
+          if (!session) return;
+          clearTimeout(session.silenceTimer);
+          const ms = session.gotSpeech ? session.postSpeechMs : session.preSpeechMs;
+          session.silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, ms);
         };
 
         rec.onstart = () => {
@@ -494,41 +500,70 @@
           armSilenceTimer();
         };
         rec.onresult = (e) => {
+          if (!session) return;
           let interim = '', final = '';
           for (let i = e.resultIndex; i < e.results.length; i++) {
             const t = e.results[i][0].transcript;
             if (e.results[i].isFinal) final += t; else interim += t;
           }
-          const combined = (base + ' ' + final + ' ' + interim).trim();
+          const combined = (session.base + ' ' + final + ' ' + interim).trim();
           input.value = combined;
-          if (combined) { gotSpeech = true; armSilenceTimer(); }
+          if (combined) { session.gotSpeech = true; armSilenceTimer(); }
         };
-        rec.onspeechstart = () => { gotSpeech = true; armSilenceTimer(); };
-        // onsoundstart fires earlier than onspeechstart and catches speech
-        // that Chrome's VAD hasn't yet classified. Treating it like "the user
-        // has started talking" prevents premature cutoffs.
-        rec.onsoundstart  = () => { gotSpeech = true; armSilenceTimer(); };
+        rec.onspeechstart = () => { if (session) { session.gotSpeech = true; armSilenceTimer(); } };
+        rec.onsoundstart  = () => { if (session) { session.gotSpeech = true; armSilenceTimer(); } };
+
         rec.onend = () => {
-          clearTimeout(silenceTimer);
-          mic.classList.remove('rec');
-          activeRec = null;
-          if (gotSpeech && input.value.trim()) {
-            lastInputWasVoice = true;
-            submit();
+          clearTimeout(session && session.silenceTimer);
+          if (!session) { mic.classList.remove('rec'); return; }
+          if (session.gotSpeech && input.value.trim()) {
+            endSession(true);
+            return;
+          }
+          // iOS Safari often ends SR before the user starts talking.
+          // Relaunch until the user finally speaks or we pass the deadline.
+          if (Date.now() < session.deadline) {
+            setTimeout(spawnRec, 50);
+          } else {
+            endSession(false);
           }
         };
-        rec.onerror = () => {
-          clearTimeout(silenceTimer);
-          mic.classList.remove('rec');
-          activeRec = null;
+        rec.onerror = (e) => {
+          // 'no-speech' and 'aborted' are routine on iOS; let onend decide.
+          const err = e && e.error;
+          if (err && err !== 'no-speech' && err !== 'aborted') {
+            endSession(false);
+          }
         };
 
-        try { rec.start(); }
-        catch (_) { activeRec = null; mic.classList.remove('rec'); }
+        try { rec.start(); } catch (_) { endSession(false); }
+      }
+
+      startListening = (autoFollowUp) => {
+        if (session) return;
+        if (!panel.classList.contains('open')) return;
+        const preSpeechMs  = autoFollowUp ? FOLLOWUP_WAIT_TO_SPEAK_MS : INITIAL_POST_SPEECH_MS;
+        const postSpeechMs = autoFollowUp ? FOLLOWUP_POST_SPEECH_MS   : INITIAL_POST_SPEECH_MS;
+        const base = autoFollowUp ? '' : input.value;
+        if (autoFollowUp) input.value = '';
+        session = {
+          preSpeechMs, postSpeechMs,
+          base, gotSpeech: false,
+          deadline: Date.now() + preSpeechMs,
+          silenceTimer: null, deadlineTimer: null, rec: null,
+        };
+        // Absolute outer deadline: stop everything if the user never speaks.
+        session.deadlineTimer = setTimeout(() => {
+          if (session && !session.gotSpeech) {
+            try { session.rec && session.rec.stop(); } catch (_) {}
+            endSession(false);
+          }
+        }, preSpeechMs + 500);
+        spawnRec();
       };
 
       mic.addEventListener('click', () => {
-        if (activeRec) { try { activeRec.stop(); } catch (_) {} return; }
+        if (session) { try { session.rec && session.rec.stop(); } catch (_) {} endSession(false); return; }
         startListening(false);
       });
     } else {
