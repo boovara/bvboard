@@ -89,7 +89,8 @@
 .chat-btn:hover { background: #2a2f3a; }
 .chat-btn.send { background: #7ee8a2; color: #0e1014; border-color: #7ee8a2; }
 .chat-btn.send:hover { background: #5fd48c; }
-.chat-btn.mic.rec { background: #e05c5c; color: #fff; border-color: #e05c5c; animation: chatPulse 1.2s ease-in-out infinite; }
+.chat-btn.mic.rec    { background: #e05c5c; color: #fff; border-color: #e05c5c; animation: chatPulse 1.2s ease-in-out infinite; }
+.chat-btn.mic.waiting { background: #7ee8a2; color: #0e1014; border-color: #7ee8a2; animation: chatPulse 1.2s ease-in-out infinite; }
 .chat-btn svg { width: 18px; height: 18px; }
 @keyframes chatPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 

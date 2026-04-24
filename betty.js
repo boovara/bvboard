@@ -457,9 +457,15 @@
     // Creates a fresh SpeechRecognition per session — reusing a single
     // instance caused Chrome to end the follow-up session after ~1s.
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const INITIAL_POST_SPEECH_MS    = 1500;  // click-mic: tight cutoff after the user finishes
-    const FOLLOWUP_POST_SPEECH_MS   = 2500;  // after Betty's reply: allow longer pauses mid-sentence
-    const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000; // generous window for the user to START talking after Betty's reply
+    // iOS Safari requires SpeechRecognition.start() to run inside a user
+    // gesture. Auto-restart from a timer is silently ignored, so we detect
+    // iOS and pulse the mic button instead, waiting for a tap.
+    const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    const INITIAL_POST_SPEECH_MS    = 1500;
+    const FOLLOWUP_POST_SPEECH_MS   = 2500;
+    const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000;
     // Session state survives across recognizer auto-restarts — iOS Safari
     // ends SR aggressively even with continuous=true, so we relaunch until
     // we actually hear speech or hit a hard deadline.
@@ -542,6 +548,18 @@
       startListening = (autoFollowUp) => {
         if (session) return;
         if (!panel.classList.contains('open')) return;
+
+        // iOS needs a real tap to open the mic. For the auto-follow-up case,
+        // pulse the mic green until the user taps it. A manual tap will call
+        // startListening(false) from a real gesture and actually open SR.
+        if (IS_IOS && autoFollowUp) {
+          mic.classList.add('waiting');
+          mic.title = 'Tap to reply';
+          return;
+        }
+        mic.classList.remove('waiting');
+        mic.title = 'Dictate';
+
         const preSpeechMs  = autoFollowUp ? FOLLOWUP_WAIT_TO_SPEAK_MS : INITIAL_POST_SPEECH_MS;
         const postSpeechMs = autoFollowUp ? FOLLOWUP_POST_SPEECH_MS   : INITIAL_POST_SPEECH_MS;
         const base = autoFollowUp ? '' : input.value;
@@ -563,6 +581,7 @@
       };
 
       mic.addEventListener('click', () => {
+        mic.classList.remove('waiting');
         if (session) { try { session.rec && session.rec.stop(); } catch (_) {} endSession(false); return; }
         startListening(false);
       });
