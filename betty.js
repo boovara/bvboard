@@ -285,6 +285,58 @@
       return el;
     }
 
+    function renderConfirmChip(pending, wasVoice) {
+      const chip = document.createElement('div');
+      chip.className = 'chat-confirm';
+      chip.innerHTML =
+          '<div class="summary">' + escapeHtml(pending.summary) + '</div>'
+        + '<div class="btns">'
+        +   '<button class="ok">Confirm</button>'
+        +   '<button class="no">Cancel</button>'
+        + '</div>';
+      log.appendChild(chip);
+      log.scrollTop = log.scrollHeight;
+
+      const ok = chip.querySelector('button.ok');
+      const no = chip.querySelector('button.no');
+
+      async function finish(action) {
+        chip.classList.add('resolved');
+        const typingEl = showTyping();
+        try {
+          const resp = await fetch(CFG.apiBase + '/api/chat', {
+            method: 'POST',
+            headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
+            body: JSON.stringify(action === 'confirm'
+              ? { confirm: { name: pending.name, input: pending.input } }
+              : { cancel: true }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          typingEl.remove();
+          const resultText = (data.text || (action === 'confirm' ? 'Done.' : 'Cancelled.')).trim();
+          const resultEl = document.createElement('div');
+          resultEl.className = 'result';
+          resultEl.textContent = resultText;
+          chip.appendChild(resultEl);
+          log.scrollTop = log.scrollHeight;
+          history.push({ role: 'user',      content: action === 'confirm' ? 'Confirmed.' : 'Cancelled.' });
+          history.push({ role: 'assistant', content: resultText });
+          if (wasVoice) speak(resultText, () => startListening(true));
+        } catch (e) {
+          typingEl.textContent = 'Error: ' + e.message;
+        }
+      }
+
+      ok.addEventListener('click', () => finish('confirm'));
+      no.addEventListener('click', () => finish('cancel'));
+
+      if (wasVoice) speak(pending.summary, () => {}); // speak the question, no auto-listen
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
     function showTyping() {
       const el = document.createElement('div');
       el.className = 'chat-msg bot';
@@ -318,11 +370,15 @@
           addMsg('bot', 'Error: ' + (data.error || resp.status));
           return;
         }
-        const replyText = data.text || '(no response)';
-        addMsg('bot', replyText);
-        if (data.text) {
-          history.push({ role: 'assistant', content: data.text });
-          if (wasVoice) speak(data.text, () => startListening(true));
+        const replyText = (data.text || '').trim();
+        if (replyText) {
+          addMsg('bot', replyText);
+          history.push({ role: 'assistant', content: replyText });
+        }
+        if (data.pending) {
+          renderConfirmChip(data.pending, wasVoice);
+        } else if (replyText && wasVoice) {
+          speak(replyText, () => startListening(true));
         }
       } catch (e) {
         typingEl.textContent = 'Error: ' + e.message;

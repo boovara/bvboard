@@ -158,7 +158,68 @@ Key conventions in the data:
 - today's date and weekday are provided at the top of the snapshot — use them for relative queries ("today", "this week", "Friday").
 - Reference crew members by first name. Keep answers short unless the user asks for detail.
 
-You can perform actions using tools when the caller's role is "admin". If the caller is not signed in (role is null) or is "crew", do not call tools — politely tell them to sign in as admin first. When a tool succeeds, briefly confirm what you did.`;
+You can perform actions using tools when the caller's role is "admin". If the caller is not signed in (role is null) or is "crew", do not call tools — politely tell them to sign in as admin first. When a tool succeeds, briefly confirm what you did.
+
+Gated tools (crew changes, event field edits, Slack sends) fire a confirmation chip before running. When proposing a gated action, keep your message to ONE short question — do NOT restate the full details. The chip shows the user exactly what will happen. Good examples: "Confirming Andrew for shop work tomorrow?" · "Reschedule Gold Gala to Friday?" · "DM Dylan and Perry for Saturday's setup?". Bad: long explanations, bulleted previews, restating dates and contexts the user just said.
+
+When the user gives a date in natural language, resolve it to an event recordId from the snapshot before calling the tool. If multiple events match (or none), ask briefly for disambiguation instead of guessing.`;
+
+const SCHEDULER_BASE = 'https://bvscheduler.vercel.app';
+const SCHEDULE_TABLE = 'tbliRwbSSEznesxhV';
+
+async function fetchEventRecord(recordId) {
+  const r = await fetch(`https://api.airtable.com/v0/${AT_BASE}/${SCHEDULE_TABLE}/${recordId}`, {
+    headers: { Authorization: `Bearer ${AT_TOKEN}` },
+  });
+  if (!r.ok) throw new Error(`Airtable fetch ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+const CREW_FIELD_BY_CONTEXT = {
+  setup:  { confirmed: 'SETUP \u2013 Confirmed Crew',   tentative: 'SETUP - Tentative',   keyConfirmed: 'setup-confirmed',  keyTentative: 'setup-tentative' },
+  strike: { confirmed: 'STRIKE \u2013 Confirmed Crew',  tentative: 'STRIKE - Tentative',  keyConfirmed: 'strike-confirmed', keyTentative: 'strike-tentative' },
+  shop:   { confirmed: 'SHOP - Confirmed',              tentative: 'SHOP - Tentative',    keyConfirmed: 'shop-confirmed',   keyTentative: 'shop-tentative' },
+  hq:     { confirmed: 'HQ - Confirmed',                tentative: 'HQ - Tentative',      keyConfirmed: 'hq-confirmed',     keyTentative: 'hq-tentative' },
+};
+
+async function schedulerPatchCrew(recordId, keyToList, authHeader) {
+  const r = await fetch(`${SCHEDULER_BASE}/api/update-crew`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      authorization: authHeader,
+    },
+    body: JSON.stringify({ recordId, fields: keyToList }),
+  });
+  if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function schedulerPatchField(recordId, fieldName, value, authHeader) {
+  const r = await fetch(`${SCHEDULER_BASE}/api/update-field`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      authorization: authHeader,
+    },
+    body: JSON.stringify({ recordId, fieldName, value }),
+  });
+  if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function schedulerSlack(recordId, recipientNames, authHeader) {
+  const r = await fetch(`${SCHEDULER_BASE}/api/slack`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: authHeader,
+    },
+    body: JSON.stringify({ recordId, recipientNames }),
+  });
+  if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
+  return r.json();
+}
 
 // ── Tool definitions ─────────────────────────────────────────────────────
 // Each tool has: { name, description, input_schema, gated, execute(input, role, authHeader) }
@@ -198,8 +259,137 @@ const TOOLS = [
         }),
       });
       if (!r.ok) return { error: `Airtable ${r.status}: ${await r.text()}` };
-      _snapshot = null; // invalidate cache so next read reflects the new task
+      _snapshot = null;
       return { ok: true, message: `Added task: "${text}"` };
+    },
+  },
+  {
+    name: 'confirm_crew_member',
+    description: 'Add a crew member to the CONFIRMED list for a given event + context (setup/strike/shop/hq). Gated — user confirms first.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string', description: 'Airtable recordId of the CREW SCHEDULE event' },
+        context: { type: 'string', enum: ['setup','strike','shop','hq'] },
+        name:    { type: 'string', description: 'Crew short name (e.g. "Dylan")' },
+      },
+      required: ['eventId','context','name'],
+    },
+    summarize: (i) => `Confirm ${i.name} for ${i.context} on the selected event?`,
+    async execute(input, role, authHeader) {
+      const map = CREW_FIELD_BY_CONTEXT[input.context];
+      if (!map) return { error: 'Invalid context' };
+      const rec = await fetchEventRecord(input.eventId);
+      const confirmed = rec.fields[map.confirmed] || [];
+      const tentative = rec.fields[map.tentative] || [];
+      if (confirmed.includes(input.name)) return { ok: true, message: `${input.name} was already confirmed.` };
+      const newConfirmed = [...confirmed, input.name];
+      const newTentative = tentative.filter(n => n !== input.name);
+      const fields = {};
+      fields[map.keyConfirmed] = newConfirmed;
+      fields[map.keyTentative] = newTentative;
+      await schedulerPatchCrew(input.eventId, fields, authHeader);
+      _snapshot = null;
+      return { ok: true, message: `Confirmed ${input.name} for ${input.context}.` };
+    },
+  },
+  {
+    name: 'set_tentative_crew',
+    description: 'Add a crew member to the TENTATIVE list for an event + context. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string' },
+        context: { type: 'string', enum: ['setup','strike','shop','hq'] },
+        name:    { type: 'string' },
+      },
+      required: ['eventId','context','name'],
+    },
+    summarize: (i) => `Add ${i.name} as tentative for ${i.context}?`,
+    async execute(input, role, authHeader) {
+      const map = CREW_FIELD_BY_CONTEXT[input.context];
+      if (!map) return { error: 'Invalid context' };
+      const rec = await fetchEventRecord(input.eventId);
+      const tentative = rec.fields[map.tentative] || [];
+      if (tentative.includes(input.name)) return { ok: true, message: `${input.name} was already tentative.` };
+      const fields = {};
+      fields[map.keyTentative] = [...tentative, input.name];
+      await schedulerPatchCrew(input.eventId, fields, authHeader);
+      _snapshot = null;
+      return { ok: true, message: `Added ${input.name} as tentative for ${input.context}.` };
+    },
+  },
+  {
+    name: 'remove_crew_member',
+    description: 'Remove a crew member from tentative AND confirmed lists for an event + context. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string' },
+        context: { type: 'string', enum: ['setup','strike','shop','hq'] },
+        name:    { type: 'string' },
+      },
+      required: ['eventId','context','name'],
+    },
+    summarize: (i) => `Remove ${i.name} from ${i.context}?`,
+    async execute(input, role, authHeader) {
+      const map = CREW_FIELD_BY_CONTEXT[input.context];
+      if (!map) return { error: 'Invalid context' };
+      const rec = await fetchEventRecord(input.eventId);
+      const confirmed = (rec.fields[map.confirmed] || []).filter(n => n !== input.name);
+      const tentative = (rec.fields[map.tentative] || []).filter(n => n !== input.name);
+      const fields = {};
+      fields[map.keyConfirmed] = confirmed;
+      fields[map.keyTentative] = tentative;
+      await schedulerPatchCrew(input.eventId, fields, authHeader);
+      _snapshot = null;
+      return { ok: true, message: `Removed ${input.name} from ${input.context}.` };
+    },
+  },
+  {
+    name: 'update_event_field',
+    description: 'Update an admin-editable field on a CREW SCHEDULE event. Allowed fieldName values: DATE, EVENT, "SETUP \u2013 HQ Call Time", "SETUP \u2013 Venue Start", "SETUP \u2013 Complete By", "SETUP \u2013 Est. Hrs", "STRIKE \u2013 HQ Call Time", "STRIKE \u2013 Venue Start", "STRIKE \u2013 Complete By", "STRIKE \u2013 Est. Hrs", "SETUP \u2013 Crew Needed", "STRIKE \u2013 Crew Needed", "SHOP \u2013 Crew Needed", "CREW NEEDED". Use an en-dash (\u2013), not a hyphen. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId:   { type: 'string' },
+        fieldName: { type: 'string' },
+        value:     { type: 'string', description: 'New value as string; numbers will be parsed server-side' },
+      },
+      required: ['eventId','fieldName','value'],
+    },
+    summarize: (i) => `Set ${i.fieldName} to "${i.value}"?`,
+    async execute(input, role, authHeader) {
+      await schedulerPatchField(input.eventId, input.fieldName, input.value, authHeader);
+      _snapshot = null;
+      return { ok: true, message: `Updated ${input.fieldName} → "${input.value}".` };
+    },
+  },
+  {
+    name: 'send_slack_to_crew',
+    description: 'Send a scheduling Slack DM (with Accept/Decline buttons and a 15-min auto-reminder) to specific crew for a single event. recipientNames is an array of short names, or ["All Crew"] to DM everyone assigned to the event. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId:        { type: 'string' },
+        recipientNames: { type: 'array', items: { type: 'string' }, description: 'e.g. ["Dylan","Perry"] or ["All Crew"]' },
+      },
+      required: ['eventId','recipientNames'],
+    },
+    summarize: (i) => {
+      const who = Array.isArray(i.recipientNames) ? i.recipientNames.join(', ') : '';
+      return `DM ${who} about this event?`;
+    },
+    async execute(input, role, authHeader) {
+      const result = await schedulerSlack(input.eventId, input.recipientNames, authHeader);
+      const sent = (result.sent || []).join(', ') || 'no one';
+      const skipped = (result.skipped || []).length ? ` (no Slack ID: ${result.skipped.join(', ')})` : '';
+      return { ok: true, message: `Sent to ${sent}${skipped}.` };
     },
   },
 ];
@@ -247,17 +437,34 @@ async function runToolLoop(messages, role, authHeader) {
     const data = await upstream.json();
     const content = data.content || [];
 
-    // Collect any tool_use blocks
     const toolUses = content.filter(b => b.type === 'tool_use');
     if (!toolUses.length) {
       const text = content.filter(b => b.type === 'text').map(b => b.text).join('');
       return { text };
     }
 
-    // Append the assistant message with its tool_use blocks to the conversation
-    workingMessages.push({ role: 'assistant', content });
+    // If any of the requested tools are gated, stop here and return pending info.
+    const gatedUse = toolUses.find(u => {
+      const def = TOOLS.find(t => t.name === u.name);
+      return def && def.gated;
+    });
+    if (gatedUse) {
+      const def = TOOLS.find(t => t.name === gatedUse.name);
+      const text = content.filter(b => b.type === 'text').map(b => b.text).join('');
+      const summary = def.summarize ? def.summarize(gatedUse.input || {}) : def.name;
+      return {
+        text,
+        pending: {
+          toolUseId: gatedUse.id,
+          name:      gatedUse.name,
+          input:     gatedUse.input,
+          summary,
+        },
+      };
+    }
 
-    // Execute each tool and collect tool_result blocks
+    // All safe — execute, feed back, loop.
+    workingMessages.push({ role: 'assistant', content });
     const toolResults = [];
     for (const use of toolUses) {
       const def = TOOLS.find(t => t.name === use.name);
@@ -277,11 +484,19 @@ async function runToolLoop(messages, role, authHeader) {
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: e.message, is_error: true });
       }
     }
-
     workingMessages.push({ role: 'user', content: toolResults });
-    // Loop back to Anthropic with tool results
   }
   return { text: '(too many tool iterations — stopping)' };
+}
+
+// Direct execution path — called when the client confirms a gated action.
+async function executeConfirmed(name, input, role, authHeader) {
+  if (role !== 'admin') throw new Error('Admin only');
+  const def = TOOLS.find(t => t.name === name);
+  if (!def) throw new Error('Unknown tool: ' + name);
+  const result = await def.execute(input || {}, role, authHeader);
+  if (result.error) throw new Error(result.error);
+  return result.message || 'Done.';
 }
 
 export default async function handler(req, res) {
@@ -324,9 +539,25 @@ export default async function handler(req, res) {
 
   if (refresh) _snapshot = null;
 
+  // Confirmation path — client confirmed a gated tool; execute and return result text.
+  if (req.body.confirm) {
+    const { name, input } = req.body.confirm;
+    try {
+      const message = await executeConfirmed(name, input, role, authHeader);
+      return res.status(200).json({ text: message, role });
+    } catch (e) {
+      return res.status(200).json({ text: 'Failed: ' + e.message, role });
+    }
+  }
+
+  // Cancellation path — don't do anything, just acknowledge.
+  if (req.body.cancel) {
+    return res.status(200).json({ text: 'Cancelled.', role });
+  }
+
   try {
     const result = await runToolLoop(messages, role, authHeader);
-    return res.status(200).json({ text: result.text, role });
+    return res.status(200).json({ text: result.text, pending: result.pending, role });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
