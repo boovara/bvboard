@@ -334,7 +334,19 @@
           log.scrollTop = log.scrollHeight;
           history.push({ role: 'user',      content: action === 'confirm' ? 'Confirmed.' : 'Cancelled.' });
           history.push({ role: 'assistant', content: resultText });
-          if (viaVoice) speak(resultText, () => startListening(true));
+
+          // Follow-up pending action (e.g. post-crew-change Slack offer).
+          if (data.pending) {
+            // Speak the short result first, then render the new chip. The chip
+            // itself handles voice-listening for yes/no.
+            if (viaVoice) {
+              speak(resultText, () => renderConfirmChip(data.pending, true));
+            } else {
+              renderConfirmChip(data.pending, false);
+            }
+          } else if (viaVoice) {
+            speak(resultText, () => startListening(true));
+          }
         } catch (e) {
           typingEl.textContent = 'Error: ' + e.message;
         }

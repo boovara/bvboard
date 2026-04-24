@@ -500,13 +500,30 @@ async function runToolLoop(messages, role, authHeader, dateCtx) {
 }
 
 // Direct execution path — called when the client confirms a gated action.
+// Returns { text, pending? } — pending is set when the action should offer
+// a natural follow-up (e.g. crew changes offer a Slack notification).
 async function executeConfirmed(name, input, role, authHeader) {
   if (role !== 'admin') throw new Error('Admin only');
   const def = TOOLS.find(t => t.name === name);
   if (!def) throw new Error('Unknown tool: ' + name);
   const result = await def.execute(input || {}, role, authHeader);
   if (result.error) throw new Error(result.error);
-  return result.message || 'Done.';
+  const text = result.message || 'Done.';
+
+  // After a crew change on a specific person, offer to Slack them about it.
+  const crewTools = new Set(['confirm_crew_member', 'set_tentative_crew', 'remove_crew_member']);
+  if (crewTools.has(name) && input.eventId && input.name) {
+    return {
+      text,
+      pending: {
+        toolUseId: 'followup-slack-' + Date.now(),
+        name: 'send_slack_to_crew',
+        input: { eventId: input.eventId, recipientNames: [input.name] },
+        summary: `Send ${input.name} a Slack notification of the change?`,
+      },
+    };
+  }
+  return { text };
 }
 
 export default async function handler(req, res) {
@@ -554,8 +571,8 @@ export default async function handler(req, res) {
   if (req.body.confirm) {
     const { name, input } = req.body.confirm;
     try {
-      const message = await executeConfirmed(name, input, role, authHeader);
-      return res.status(200).json({ text: message, role });
+      const result = await executeConfirmed(name, input, role, authHeader);
+      return res.status(200).json({ text: result.text, pending: result.pending, role });
     } catch (e) {
       return res.status(200).json({ text: 'Failed: ' + e.message, role });
     }
