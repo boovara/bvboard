@@ -71,9 +71,22 @@ function compact(records, opts = {}) {
 function resolveDateContext(tz) {
   const safeTZ = tz || 'America/Los_Angeles';
   const now = new Date();
-  const today   = now.toLocaleDateString('en-CA', { timeZone: safeTZ });              // YYYY-MM-DD
+  const today   = now.toLocaleDateString('en-CA', { timeZone: safeTZ });
   const weekday = now.toLocaleDateString('en-US', { timeZone: safeTZ, weekday: 'long' });
-  return { today, weekday, tz: safeTZ };
+
+  // Precomputed date ladder for the next 14 days so Claude can't miscount.
+  // Each entry: "YYYY-MM-DD (Weekday, Month D)" keyed by relative label.
+  const labels = ['today','tomorrow','day after tomorrow'];
+  const ladder = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(now.getTime() + i * 86400000);
+    const ymd = d.toLocaleDateString('en-CA', { timeZone: safeTZ });
+    const wk  = d.toLocaleDateString('en-US', { timeZone: safeTZ, weekday: 'long' });
+    const md  = d.toLocaleDateString('en-US', { timeZone: safeTZ, month: 'long', day: 'numeric' });
+    const label = labels[i] || wk;
+    ladder.push(`${label === wk ? '' : label + ' = '}${wk}, ${md} (${ymd})`);
+  }
+  return { today, weekday, tz: safeTZ, ladder };
 }
 
 async function buildSnapshot() {
@@ -171,7 +184,11 @@ CRITICAL rules when calling a gated tool:
 2. Do NOT explain your reasoning. Do NOT list records. Do NOT resolve the date out loud. Do NOT say "I need to identify...". Do NOT say "Looking at the crew schedule...". Just call the tool.
 3. The confirmation chip below your message will show the exact details — don't restate them.
 
-When the user gives a date in natural language, silently resolve it from the snapshot and call the tool with the right recordId. If multiple events match the date (or none), ask one brief question instead of guessing.`;
+When the user gives a date in natural language:
+- ALWAYS resolve it using the "Date ladder" above — never compute days of the week yourself. The ladder is the source of truth.
+- Then find the CREW SCHEDULE row whose DATE field EXACTLY matches the resolved YYYY-MM-DD.
+- If NO row exactly matches, do NOT substitute a nearby date. Ask briefly: "I don't see an event on Friday, April 24. Did you mean another date?"
+- If multiple rows match, ask which one.`;
 
 const SCHEDULER_BASE = 'https://bvscheduler.vercel.app';
 const SCHEDULE_TABLE = 'tbliRwbSSEznesxhV';
@@ -415,8 +432,10 @@ async function runToolLoop(messages, role, authHeader, dateCtx) {
   for (let iter = 0; iter < 5; iter++) {
     const snapshot = await getSnapshot(false);
     const snapshotText =
-      `Context: today=${dateCtx.today} (${dateCtx.weekday}), caller_timezone=${dateCtx.tz}, caller_role=${role || 'not signed in'}.\n\n`
-      + 'Current Airtable snapshot:\n'
+      `Context: today=${dateCtx.today} (${dateCtx.weekday}), caller_timezone=${dateCtx.tz}, caller_role=${role || 'not signed in'}.\n`
+      + 'Date ladder (use these — do not compute your own):\n'
+      + dateCtx.ladder.map(l => '  ' + l).join('\n')
+      + '\n\nCurrent Airtable snapshot:\n'
       + JSON.stringify(snapshot, null, 2);
 
     const body = {
