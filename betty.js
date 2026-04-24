@@ -457,9 +457,9 @@
     // Creates a fresh SpeechRecognition per session — reusing a single
     // instance caused Chrome to end the follow-up session after ~1s.
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const INITIAL_POST_SPEECH_MS    = 1500; // click-mic: tight cutoff after the user finishes
-    const FOLLOWUP_POST_SPEECH_MS   = 2500; // after Betty's reply: allow longer pauses mid-sentence
-    const FOLLOWUP_WAIT_TO_SPEAK_MS = 5000; // how long to wait for the user to START talking after Betty's reply
+    const INITIAL_POST_SPEECH_MS    = 1500;  // click-mic: tight cutoff after the user finishes
+    const FOLLOWUP_POST_SPEECH_MS   = 2500;  // after Betty's reply: allow longer pauses mid-sentence
+    const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000; // generous window for the user to START talking after Betty's reply
     let activeRec = null;
     let startListening = () => {};
 
@@ -504,6 +504,10 @@
           if (combined) { gotSpeech = true; armSilenceTimer(); }
         };
         rec.onspeechstart = () => { gotSpeech = true; armSilenceTimer(); };
+        // onsoundstart fires earlier than onspeechstart and catches speech
+        // that Chrome's VAD hasn't yet classified. Treating it like "the user
+        // has started talking" prevents premature cutoffs.
+        rec.onsoundstart  = () => { gotSpeech = true; armSilenceTimer(); };
         rec.onend = () => {
           clearTimeout(silenceTimer);
           mic.classList.remove('rec');
