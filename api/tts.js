@@ -6,14 +6,27 @@
 
 const KEY      = process.env.ELEVENLABS_API_KEY;
 const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'; // Rachel
-const MODEL_ID = 'eleven_turbo_v2_5';
+const MODEL_ID = 'eleven_flash_v2_5'; // ~3× faster first-byte than turbo
+
+// Strip characters that make TTS stumble. Normalizes dashes to commas so
+// Betty doesn't say "seven dash thirty"; strips markdown emphasis markers.
+function sanitizeForTTS(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/[*_~`#\[\]()<>|]/g, '')   // markdown + punctuation noise
+    .replace(/\s*[—–-]\s*/g, ', ')      // em/en/hyphen between words → comma
+    .replace(/&/g, ' and ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
   if (!KEY) return res.status(500).json({ error: 'ELEVENLABS_API_KEY not set' });
 
-  const { text } = req.body || {};
-  if (!text || typeof text !== 'string') return res.status(400).json({ error: 'text required' });
+  const rawText = (req.body || {}).text;
+  const text = sanitizeForTTS(rawText);
+  if (!text) return res.status(400).json({ error: 'text required' });
 
   try {
     const r = await fetch(
