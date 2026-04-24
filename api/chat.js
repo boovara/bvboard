@@ -556,9 +556,6 @@ export default async function handler(req, res) {
   if (!ANT_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' });
 
   const { messages, refresh } = req.body || {};
-  if (!Array.isArray(messages) || !messages.length) {
-    return res.status(400).json({ error: 'messages array required' });
-  }
 
   const user = verify(req);
   const role = user?.role || null;
@@ -581,6 +578,10 @@ export default async function handler(req, res) {
   // Cancellation path — don't do anything, just acknowledge.
   if (req.body.cancel) {
     return res.status(200).json({ text: 'Cancelled.', role });
+  }
+
+  if (!Array.isArray(messages) || !messages.length) {
+    return res.status(400).json({ error: 'messages array required' });
   }
 
   try {
