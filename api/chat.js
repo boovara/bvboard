@@ -160,9 +160,14 @@ Key conventions in the data:
 
 You can perform actions using tools when the caller's role is "admin". If the caller is not signed in (role is null) or is "crew", do not call tools — politely tell them to sign in as admin first. When a tool succeeds, briefly confirm what you did.
 
-Gated tools (crew changes, event field edits, Slack sends) fire a confirmation chip before running. When proposing a gated action, keep your message to ONE short question — do NOT restate the full details. The chip shows the user exactly what will happen. Good examples: "Confirming Andrew for shop work tomorrow?" · "Reschedule Gold Gala to Friday?" · "DM Dylan and Perry for Saturday's setup?". Bad: long explanations, bulleted previews, restating dates and contexts the user just said.
+Gated tools (crew changes, event field edits, Slack sends) fire a confirmation chip before running.
 
-When the user gives a date in natural language, resolve it to an event recordId from the snapshot before calling the tool. If multiple events match (or none), ask briefly for disambiguation instead of guessing.`;
+CRITICAL rules when calling a gated tool:
+1. Your text in that turn must be EXACTLY one short question, max ~10 words, phrased like the user is about to click yes/no. Examples: "Confirming Andrew for shop work tomorrow?" / "Reschedule Gold Gala to Friday?" / "DM Dylan and Perry for Saturday's setup?".
+2. Do NOT explain your reasoning. Do NOT list records. Do NOT resolve the date out loud. Do NOT say "I need to identify...". Do NOT say "Looking at the crew schedule...". Just call the tool.
+3. The confirmation chip below your message will show the exact details — don't restate them.
+
+When the user gives a date in natural language, silently resolve it from the snapshot and call the tool with the right recordId. If multiple events match the date (or none), ask one brief question instead of guessing.`;
 
 const SCHEDULER_BASE = 'https://bvscheduler.vercel.app';
 const SCHEDULE_TABLE = 'tbliRwbSSEznesxhV';
