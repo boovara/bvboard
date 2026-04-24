@@ -140,9 +140,12 @@ async function buildSnapshot() {
         && !s.includes('closed') && !s.includes('no response') && !s.includes('send thank you');
   });
 
+  // DAYS OFF uses "Date Start" / "Date End". Keep a record if either end of the
+  // range falls inside the visible window so Betty can see upcoming + recent PTO.
   const daysOffRecent = daysOff.filter(r => {
-    const d = r.fields?.Date || r.fields?.DATE || r.fields?.['Day Off Date'];
-    return !d || inWindow(d);
+    const s = r.fields?.['Date Start'];
+    const e = r.fields?.['Date End'];
+    return (!s && !e) || inWindow(s) || inWindow(e);
   });
 
   return {
@@ -229,6 +232,25 @@ async function schedulerPatchField(recordId, fieldName, value, authHeader) {
       authorization: authHeader,
     },
     body: JSON.stringify({ recordId, fieldName, value }),
+  });
+  if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function schedulerAddDayOff(crewName, startDate, endDate, note, authHeader) {
+  const r = await fetch(`${SCHEDULER_BASE}/api/days-off`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: authHeader },
+    body: JSON.stringify({ crew: crewName, start: startDate, end: endDate, note: note || '' }),
+  });
+  if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function schedulerDeleteDayOff(id, authHeader) {
+  const r = await fetch(`${SCHEDULER_BASE}/api/days-off?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { authorization: authHeader },
   });
   if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
   return r.json();
@@ -393,6 +415,49 @@ const TOOLS = [
       await schedulerPatchField(input.eventId, input.fieldName, input.value, authHeader);
       _snapshot = null;
       return { ok: true, message: `Updated ${input.fieldName} → "${input.value}".` };
+    },
+  },
+  {
+    name: 'add_day_off',
+    description: 'Add a DAYS OFF record for a crew member. startDate/endDate are YYYY-MM-DD. For a single day, use the same value for both. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        crewName:  { type: 'string', description: 'Crew short name (e.g. "Dylan")' },
+        startDate: { type: 'string', description: 'YYYY-MM-DD (resolve from the date ladder)' },
+        endDate:   { type: 'string', description: 'YYYY-MM-DD (same as startDate for a single day)' },
+        note:      { type: 'string', description: 'Optional reason/note' },
+      },
+      required: ['crewName','startDate','endDate'],
+    },
+    summarize: (i) => {
+      const range = i.startDate === i.endDate ? i.startDate : `${i.startDate} to ${i.endDate}`;
+      return `Mark ${i.crewName} off ${range}?`;
+    },
+    async execute(input, role, authHeader) {
+      await schedulerAddDayOff(input.crewName, input.startDate, input.endDate, input.note, authHeader);
+      _snapshot = null;
+      const range = input.startDate === input.endDate ? input.startDate : `${input.startDate}–${input.endDate}`;
+      return { ok: true, message: `Marked ${input.crewName} off ${range}.` };
+    },
+  },
+  {
+    name: 'delete_day_off',
+    description: 'Delete a DAYS OFF record by its Airtable recordId (from the snapshot daysOff list). Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string', description: 'Airtable recordId of the days-off record to delete' },
+      },
+      required: ['recordId'],
+    },
+    summarize: (i) => `Delete this days-off record?`,
+    async execute(input, role, authHeader) {
+      await schedulerDeleteDayOff(input.recordId, authHeader);
+      _snapshot = null;
+      return { ok: true, message: `Days-off record deleted.` };
     },
   },
   {
