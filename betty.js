@@ -457,7 +457,7 @@
     // Creates a fresh SpeechRecognition per session — reusing a single
     // instance caused Chrome to end the follow-up session after ~1s.
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const POST_SPEECH_SILENCE_MS   = 1000; // silence needed AFTER the user has started talking
+    const POST_SPEECH_SILENCE_MS   = 1500; // silence needed AFTER the user has started talking
     const FOLLOWUP_WAIT_TO_SPEAK_MS = 5000; // how long to wait for the user to START talking after Betty's reply
     let activeRec = null;
     let startListening = () => {};
