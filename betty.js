@@ -209,6 +209,15 @@
     function authHeaders() {
       return csToken ? { Authorization: 'Bearer ' + csToken } : {};
     }
+    function clientTZ() {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; }
+    }
+
+    // Track a currently-displayed confirmation chip so voice/text follow-ups
+    // like "yes" / "cancel" can resolve it instead of being sent as a new question.
+    let pendingChip = null;
+    const YES_RE = /^\s*(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|do it|go ahead|affirmative|please do|proceed)\b[.!?\s]*$/i;
+    const NO_RE  = /^\s*(no|nope|cancel|nevermind|never\s*mind|stop|don'?t|forget it|abort|negative)\b[.!?\s]*$/i;
 
     // ── TTS (ElevenLabs via /api/tts) ──────────────────────────────────────
     let voiceOn = localStorage.getItem('bettyVoiceOn') !== '0';
@@ -299,8 +308,12 @@
 
       const ok = chip.querySelector('button.ok');
       const no = chip.querySelector('button.no');
+      let resolved = false;
 
-      async function finish(action) {
+      async function finish(action, viaVoice) {
+        if (resolved) return;
+        resolved = true;
+        if (pendingChip === api) pendingChip = null;
         chip.classList.add('resolved');
         const typingEl = showTyping();
         try {
@@ -308,8 +321,8 @@
             method: 'POST',
             headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
             body: JSON.stringify(action === 'confirm'
-              ? { confirm: { name: pending.name, input: pending.input } }
-              : { cancel: true }),
+              ? { confirm: { name: pending.name, input: pending.input }, tz: clientTZ() }
+              : { cancel: true, tz: clientTZ() }),
           });
           const data = await resp.json().catch(() => ({}));
           typingEl.remove();
@@ -321,16 +334,30 @@
           log.scrollTop = log.scrollHeight;
           history.push({ role: 'user',      content: action === 'confirm' ? 'Confirmed.' : 'Cancelled.' });
           history.push({ role: 'assistant', content: resultText });
-          if (wasVoice) speak(resultText, () => startListening(true));
+          if (viaVoice) speak(resultText, () => startListening(true));
         } catch (e) {
           typingEl.textContent = 'Error: ' + e.message;
         }
       }
 
-      ok.addEventListener('click', () => finish('confirm'));
-      no.addEventListener('click', () => finish('cancel'));
+      // Public interface so submit()'s yes/no interception can drive it.
+      const api = {
+        confirm: (viaVoice) => finish('confirm', viaVoice),
+        cancel:  (viaVoice) => finish('cancel',  viaVoice),
+        dismiss: () => {
+          if (resolved) return;
+          resolved = true;
+          if (pendingChip === api) pendingChip = null;
+          chip.classList.add('resolved');
+        },
+      };
+      pendingChip = api;
 
-      if (wasVoice) speak(pending.summary, () => {}); // speak the question, no auto-listen
+      ok.addEventListener('click', () => finish('confirm', false));
+      no.addEventListener('click', () => finish('cancel',  false));
+
+      // Voice mode: speak the question, then auto-listen for yes/no.
+      if (wasVoice) speak(pending.summary, () => startListening(true));
     }
 
     function escapeHtml(s) {
@@ -354,6 +381,16 @@
       lastInputWasVoice = false;
       input.value = '';
       input.style.height = 'auto';
+
+      // If a confirmation chip is waiting, a yes/no answer resolves it
+      // instead of being sent to Betty as a new question.
+      if (pendingChip) {
+        if (YES_RE.test(text)) { addMsg('user', text); pendingChip.confirm(wasVoice); return; }
+        if (NO_RE.test(text))  { addMsg('user', text); pendingChip.cancel(wasVoice);  return; }
+        // Not a yes/no — dismiss the chip as stale and proceed with the new question.
+        pendingChip.dismiss();
+      }
+
       addMsg('user', text);
       history.push({ role: 'user', content: text });
 
@@ -362,7 +399,7 @@
         const resp = await fetch(CFG.apiBase + '/api/chat', {
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
-          body: JSON.stringify({ messages: history }),
+          body: JSON.stringify({ messages: history, tz: clientTZ() }),
         });
         const data = await resp.json().catch(() => ({}));
         typingEl.remove();

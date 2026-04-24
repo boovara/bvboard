@@ -68,6 +68,14 @@ function compact(records, opts = {}) {
   });
 }
 
+function resolveDateContext(tz) {
+  const safeTZ = tz || 'America/Los_Angeles';
+  const now = new Date();
+  const today   = now.toLocaleDateString('en-CA', { timeZone: safeTZ });              // YYYY-MM-DD
+  const weekday = now.toLocaleDateString('en-US', { timeZone: safeTZ, weekday: 'long' });
+  return { today, weekday, tz: safeTZ };
+}
+
 async function buildSnapshot() {
   const [bvBoard, projects, amazonOrders, crewSchedule, crew, daysOff] =
     await Promise.all(Object.values(TABLES).map(atFetchAll));
@@ -84,11 +92,9 @@ async function buildSnapshot() {
     else if (s === 'canvas'  || s === 'sticky')  bySection.canvas.push(rec);
   }
 
+  // Pacific-default window is fine for the ±14d/60d cache-level filter —
+  // actual "today" is injected per-request based on the caller's timezone.
   const now = new Date();
-  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
-  const today = now.toISOString().slice(0, 10);
-
-  // CREW SCHEDULE: only keep rows in a 14-day-back / 60-day-forward window.
   const minDate = new Date(now); minDate.setDate(minDate.getDate() - 14);
   const maxDate = new Date(now); maxDate.setDate(maxDate.getDate() + 60);
   const inWindow = (dstr) => {
@@ -127,8 +133,6 @@ async function buildSnapshot() {
   });
 
   return {
-    today,
-    weekday,
     bvBoard:      bySection,
     projects:     compact(activeProjects, { keep: projectKeep }),
     amazonOrders: compact(amazonOrders),
@@ -404,14 +408,15 @@ function toolsForRole(role) {
   return TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 }
 
-async function runToolLoop(messages, role, authHeader) {
+async function runToolLoop(messages, role, authHeader, dateCtx) {
   // Loop: call Anthropic → execute any safe tool_use → feed results back → repeat.
   // Caps at 5 iterations as a safety valve.
   let workingMessages = messages.slice();
   for (let iter = 0; iter < 5; iter++) {
     const snapshot = await getSnapshot(false);
     const snapshotText =
-      `Current Airtable snapshot (today=${snapshot.today}, weekday=${snapshot.weekday}, caller_role=${role || 'not signed in'}):\n\n`
+      `Context: today=${dateCtx.today} (${dateCtx.weekday}), caller_timezone=${dateCtx.tz}, caller_role=${role || 'not signed in'}.\n\n`
+      + 'Current Airtable snapshot:\n'
       + JSON.stringify(snapshot, null, 2);
 
     const body = {
@@ -541,6 +546,7 @@ export default async function handler(req, res) {
   const user = verify(req);
   const role = user?.role || null;
   const authHeader = req.headers['authorization'] || '';
+  const dateCtx = resolveDateContext(req.body.tz);
 
   if (refresh) _snapshot = null;
 
@@ -561,7 +567,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const result = await runToolLoop(messages, role, authHeader);
+    const result = await runToolLoop(messages, role, authHeader, dateCtx);
     return res.status(200).json({ text: result.text, pending: result.pending, role });
   } catch (e) {
     return res.status(500).json({ error: e.message });
