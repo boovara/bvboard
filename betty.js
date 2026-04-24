@@ -463,7 +463,7 @@
     const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    const INITIAL_POST_SPEECH_MS    = 1500;
+    const INITIAL_POST_SPEECH_MS    = 2000;
     const FOLLOWUP_POST_SPEECH_MS   = 2500;
     const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000;
     // Session state survives across recognizer auto-restarts — iOS Safari
