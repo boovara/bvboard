@@ -209,6 +209,7 @@
     function authHeaders() {
       return csToken ? { Authorization: 'Bearer ' + csToken } : {};
     }
+    function noop() {}
     function clientTZ() {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; }
     }
@@ -240,7 +241,10 @@
     function stopAudio() {
       try { audioEl.pause(); audioEl.currentTime = 0; } catch (_) {}
       if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null; }
+      ttsPlaying = false;
     }
+
+    let ttsPlaying = false;
 
     async function speak(text, onEnd) {
       if (!voiceOn || !text) { onEnd && onEnd(); return; }
@@ -255,8 +259,9 @@
         const blob = await r.blob();
         currentAudioUrl = URL.createObjectURL(blob);
         audioEl.src = currentAudioUrl;
-        audioEl.onended = () => { stopAudio(); onEnd && onEnd(); };
-        audioEl.onerror = () => { stopAudio(); onEnd && onEnd(); };
+        audioEl.onplay   = () => { ttsPlaying = true;  if (session) suppressSession(); };
+        audioEl.onended  = () => { stopAudio(); if (session) resumeSession(); onEnd && onEnd(); };
+        audioEl.onerror  = () => { stopAudio(); if (session) resumeSession(); onEnd && onEnd(); };
         await audioEl.play().catch(() => { onEnd && onEnd(); });
       } catch (_) {
         onEnd && onEnd();
@@ -345,7 +350,7 @@
               renderConfirmChip(data.pending, false);
             }
           } else if (viaVoice) {
-            speak(resultText, () => startListening(true));
+            speak(resultText, noop);
           }
         } catch (e) {
           typingEl.textContent = 'Error: ' + e.message;
@@ -369,7 +374,7 @@
       no.addEventListener('click', () => finish('cancel',  false));
 
       // Voice mode: speak the question, then auto-listen for yes/no.
-      if (wasVoice) speak(pending.summary, () => startListening(true));
+      if (wasVoice) speak(pending.summary, noop);
     }
 
     function escapeHtml(s) {
@@ -427,7 +432,7 @@
         if (data.pending) {
           renderConfirmChip(data.pending, wasVoice);
         } else if (replyText && wasVoice) {
-          speak(replyText, () => startListening(true));
+          speak(replyText, noop);
         }
       } catch (e) {
         typingEl.textContent = 'Error: ' + e.message;
@@ -466,124 +471,170 @@
     const INITIAL_POST_SPEECH_MS    = 2000;
     const FOLLOWUP_POST_SPEECH_MS   = 2500;
     const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000;
-    // Session state survives across recognizer auto-restarts — iOS Safari
-    // ends SR aggressively even with continuous=true, so we relaunch until
-    // we actually hear speech or hit a hard deadline.
+    // Persistent session — started once by a user tap and kept alive across
+    // Betty's replies. The recognizer is never deliberately stopped between
+    // turns; we just suppress incoming results during TTS playback. This
+    // works around iOS Safari's rule that SR.start() must run inside a
+    // user gesture: as long as the SAME session is still running from the
+    // original tap, we don't need a new gesture.
     let session = null;
+    let startListening = () => {};
 
-    function endSession(submitIfSpeech) {
+    function endSession() {
       if (!session) return;
       clearTimeout(session.silenceTimer);
-      clearTimeout(session.deadlineTimer);
+      session.ended = true;
+      try { session.rec && session.rec.stop(); } catch (_) {}
+      session = null;
       mic.classList.remove('rec');
-      const s = session; session = null;
-      if (submitIfSpeech && s.gotSpeech && input.value.trim()) {
-        lastInputWasVoice = true;
-        submit();
-      }
+      mic.classList.remove('waiting');
     }
 
-    let startListening = () => {};
+    function suppressSession() {
+      if (!session) return;
+      // Mark the current results as already-processed so they don't bleed
+      // into the next utterance, and pause the silence timer.
+      session.suppressed = true;
+      session.gotSpeech  = false;
+      clearTimeout(session.silenceTimer);
+      input.value = '';
+    }
+
+    function resumeSession() {
+      if (!session) return;
+      session.suppressed = false;
+      session.gotSpeech  = false;
+      // Bump the result baseline to the current results length so anything
+      // SR transcribed during TTS (Betty's own voice echoing into the mic)
+      // is ignored from now on.
+      if (session.rec && session.rec.__results) {
+        session.resultBaseIndex = session.rec.__results.length;
+      }
+      armSilenceTimer();
+    }
+
+    function armSilenceTimer() {
+      if (!session) return;
+      clearTimeout(session.silenceTimer);
+      const ms = session.gotSpeech ? FOLLOWUP_POST_SPEECH_MS : FOLLOWUP_WAIT_TO_SPEAK_MS;
+      session.silenceTimer = setTimeout(submitUtterance, ms);
+    }
+
+    function submitUtterance() {
+      if (!session) return;
+      const text = input.value.trim();
+      if (!text || !session.gotSpeech) {
+        // No speech captured during the wait window — keep listening.
+        armSilenceTimer();
+        return;
+      }
+      // Capture this utterance and flag the SR state for the next one.
+      session.gotSpeech = false;
+      session.resultBaseIndex = session.rec && session.rec.__results
+        ? session.rec.__results.length : 0;
+      lastInputWasVoice = true;
+      submit();
+      // submit() will set ttsPlaying via speak(); suppressSession() runs
+      // from audioEl.onplay so we don't have to do anything else here.
+    }
 
     if (SR) {
       function spawnRec() {
-        if (!session) return;
+        if (!session || session.ended) return;
         const rec = new SR();
         rec.continuous     = true;
         rec.interimResults = true;
         rec.lang           = 'en-US';
         session.rec = rec;
 
-        const armSilenceTimer = () => {
-          if (!session) return;
-          clearTimeout(session.silenceTimer);
-          const ms = session.gotSpeech ? session.postSpeechMs : session.preSpeechMs;
-          session.silenceTimer = setTimeout(() => { try { rec.stop(); } catch (_) {} }, ms);
-        };
-
         rec.onstart = () => {
           mic.classList.add('rec');
+          mic.classList.remove('waiting');
           armSilenceTimer();
         };
         rec.onresult = (e) => {
-          if (!session) return;
+          if (!session || session.suppressed || ttsPlaying) {
+            rec.__results = e.results;
+            return;
+          }
+          rec.__results = e.results;
           let interim = '', final = '';
-          for (let i = e.resultIndex; i < e.results.length; i++) {
+          for (let i = session.resultBaseIndex; i < e.results.length; i++) {
             const t = e.results[i][0].transcript;
             if (e.results[i].isFinal) final += t; else interim += t;
           }
-          const combined = (session.base + ' ' + final + ' ' + interim).trim();
+          const combined = (final + ' ' + interim).trim();
           input.value = combined;
           if (combined) { session.gotSpeech = true; armSilenceTimer(); }
         };
-        rec.onspeechstart = () => { if (session) { session.gotSpeech = true; armSilenceTimer(); } };
-        rec.onsoundstart  = () => { if (session) { session.gotSpeech = true; armSilenceTimer(); } };
+        const markSpeech = () => {
+          if (session && !session.suppressed && !ttsPlaying) {
+            session.gotSpeech = true; armSilenceTimer();
+          }
+        };
+        rec.onspeechstart = markSpeech;
+        rec.onsoundstart  = markSpeech;
 
         rec.onend = () => {
-          clearTimeout(session && session.silenceTimer);
-          if (!session) { mic.classList.remove('rec'); return; }
-          if (session.gotSpeech && input.value.trim()) {
-            endSession(true);
-            return;
-          }
-          // iOS Safari often ends SR before the user starts talking.
-          // Relaunch until the user finally speaks or we pass the deadline.
-          if (Date.now() < session.deadline) {
-            setTimeout(spawnRec, 50);
-          } else {
-            endSession(false);
-          }
+          if (!session || session.ended) { mic.classList.remove('rec'); return; }
+          // SR ended on its own — try to relaunch. On iOS this fails silently
+          // if we're outside a gesture; we surface that as a "tap to resume"
+          // pulse on the mic.
+          setTimeout(() => {
+            if (!session || session.ended) return;
+            try {
+              spawnRec();
+            } catch (_) {
+              mic.classList.remove('rec');
+              mic.classList.add('waiting');
+              mic.title = 'Tap to resume';
+            }
+          }, 50);
         };
         rec.onerror = (e) => {
-          // 'no-speech' and 'aborted' are routine on iOS; let onend decide.
           const err = e && e.error;
           if (err && err !== 'no-speech' && err !== 'aborted') {
-            endSession(false);
+            endSession();
           }
         };
 
-        try { rec.start(); } catch (_) { endSession(false); }
+        try { rec.start(); }
+        catch (_) {
+          mic.classList.remove('rec');
+          mic.classList.add('waiting');
+          mic.title = 'Tap to resume';
+        }
       }
 
-      startListening = (autoFollowUp) => {
-        if (session) return;
+      startListening = () => {
+        if (session && !session.ended) return;
         if (!panel.classList.contains('open')) return;
-
-        // iOS needs a real tap to open the mic. For the auto-follow-up case,
-        // pulse the mic green until the user taps it. A manual tap will call
-        // startListening(false) from a real gesture and actually open SR.
-        if (IS_IOS && autoFollowUp) {
-          mic.classList.add('waiting');
-          mic.title = 'Tap to reply';
-          return;
-        }
         mic.classList.remove('waiting');
         mic.title = 'Dictate';
-
-        const preSpeechMs  = autoFollowUp ? FOLLOWUP_WAIT_TO_SPEAK_MS : INITIAL_POST_SPEECH_MS;
-        const postSpeechMs = autoFollowUp ? FOLLOWUP_POST_SPEECH_MS   : INITIAL_POST_SPEECH_MS;
-        const base = autoFollowUp ? '' : input.value;
-        if (autoFollowUp) input.value = '';
         session = {
-          preSpeechMs, postSpeechMs,
-          base, gotSpeech: false,
-          deadline: Date.now() + preSpeechMs,
-          silenceTimer: null, deadlineTimer: null, rec: null,
+          gotSpeech: false,
+          suppressed: false,
+          ended: false,
+          silenceTimer: null,
+          rec: null,
+          resultBaseIndex: 0,
         };
-        // Absolute outer deadline: stop everything if the user never speaks.
-        session.deadlineTimer = setTimeout(() => {
-          if (session && !session.gotSpeech) {
-            try { session.rec && session.rec.stop(); } catch (_) {}
-            endSession(false);
-          }
-        }, preSpeechMs + 500);
         spawnRec();
       };
 
       mic.addEventListener('click', () => {
-        mic.classList.remove('waiting');
-        if (session) { try { session.rec && session.rec.stop(); } catch (_) {} endSession(false); return; }
-        startListening(false);
+        if (session && !session.ended) {
+          // Active session: tap toggles it off
+          if (mic.classList.contains('waiting')) {
+            // SR died and we're waiting for resume — restart from this gesture
+            mic.classList.remove('waiting');
+            try { spawnRec(); } catch (_) {}
+            return;
+          }
+          endSession();
+          return;
+        }
+        startListening();
       });
     } else {
       mic.title = 'Dictation not supported in this browser';
