@@ -514,8 +514,13 @@
     const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    const INITIAL_POST_SPEECH_MS    = 2000;
-    const FOLLOWUP_POST_SPEECH_MS   = 2500;
+    // After ANY interim result arrives we wait this long before submitting —
+    // tolerates natural mid-sentence pauses without cutting the user off.
+    const POST_INTERIM_MS = 1500;
+    // After a FINAL result the recognizer has already committed that segment;
+    // we can submit much faster.
+    const POST_FINAL_MS   = 350;
+    // How long to wait for the user to start talking after Betty's reply.
     const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000;
     // Persistent session — started once by a user tap and kept alive across
     // Betty's replies. The recognizer is never deliberately stopped between
@@ -559,10 +564,16 @@
       armSilenceTimer();
     }
 
-    function armSilenceTimer() {
+    function armSilenceTimer(stage) {
       if (!session) return;
       clearTimeout(session.silenceTimer);
-      const ms = session.gotSpeech ? FOLLOWUP_POST_SPEECH_MS : FOLLOWUP_WAIT_TO_SPEAK_MS;
+      // stage: 'pre'  = haven't heard speech yet
+      //        'interim' = receiving partial transcripts
+      //        'final'   = recognizer committed a final segment
+      let ms;
+      if (stage === 'final')        ms = POST_FINAL_MS;
+      else if (session.gotSpeech)   ms = POST_INTERIM_MS;
+      else                          ms = FOLLOWUP_WAIT_TO_SPEAK_MS;
       session.silenceTimer = setTimeout(submitUtterance, ms);
     }
 
@@ -605,21 +616,32 @@
           }
           rec.__results = e.results;
           let interim = '', final = '';
+          let sawFinal = false;
           for (let i = session.resultBaseIndex; i < e.results.length; i++) {
             const t = e.results[i][0].transcript;
-            if (e.results[i].isFinal) final += t; else interim += t;
+            if (e.results[i].isFinal) { final += t; sawFinal = true; }
+            else                       { interim += t; }
           }
           const combined = (final + ' ' + interim).trim();
           input.value = combined;
-          if (combined) { session.gotSpeech = true; armSilenceTimer(); }
+          if (combined) {
+            session.gotSpeech = true;
+            armSilenceTimer(sawFinal ? 'final' : 'interim');
+          }
         };
         const markSpeech = () => {
           if (session && !session.suppressed && !ttsPlaying) {
-            session.gotSpeech = true; armSilenceTimer();
+            session.gotSpeech = true; armSilenceTimer('interim');
           }
         };
         rec.onspeechstart = markSpeech;
         rec.onsoundstart  = markSpeech;
+        // Speech-end signal — fastest "user stopped talking" trigger.
+        rec.onspeechend = () => {
+          if (session && !session.suppressed && !ttsPlaying && session.gotSpeech) {
+            armSilenceTimer('final');
+          }
+        };
 
         rec.onend = () => {
           if (!session || session.ended) { mic.classList.remove('rec'); return; }
