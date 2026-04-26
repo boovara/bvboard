@@ -222,22 +222,29 @@
 
     // ── TTS (ElevenLabs via /api/tts) ──────────────────────────────────────
     let voiceOn = localStorage.getItem('bettyVoiceOn') !== '0';
-    const audioEl = new Audio();
-    audioEl.preload = 'auto';
-    let currentAudioUrl = null;
+    let audioCtx = null;
+    let currentSource = null;
     let audioUnlocked = false;
 
-    // iOS blocks programmatic audio.play() unless the element has been
-    // played at least once inside a user gesture. Call this from any tap
-    // handler to unlock; subsequent speak() calls then work from anywhere.
-    const SILENT_MP3 = 'data:audio/mpeg;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgP/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+    // Use Web Audio API for TTS playback instead of <audio>. On iOS, an
+    // <audio> element switches the OS into a playback audio session that
+    // interrupts SpeechRecognition; Web Audio uses a path that coexists
+    // with the mic. AudioContext also requires a user-gesture unlock.
     function unlockAudio() {
       if (audioUnlocked) return;
       audioUnlocked = true;
       try {
-        audioEl.src = SILENT_MP3;
-        const p = audioEl.play();
-        if (p && p.then) p.then(() => audioEl.pause()).catch(() => {});
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtx = new Ctx();
+        // Resume in case it starts suspended (most browsers do).
+        if (audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume();
+        // Brief silent buffer to fully unlock playback in this gesture.
+        const silent = audioCtx.createBuffer(1, 1, 22050);
+        const src = audioCtx.createBufferSource();
+        src.buffer = silent;
+        src.connect(audioCtx.destination);
+        src.start(0);
       } catch (_) {}
     }
 
@@ -254,17 +261,20 @@
       if (!voiceOn) stopAudio();
     });
 
+    let ttsPlaying = false;
+
     function stopAudio() {
-      try { audioEl.pause(); audioEl.currentTime = 0; } catch (_) {}
-      if (currentAudioUrl) { URL.revokeObjectURL(currentAudioUrl); currentAudioUrl = null; }
+      try {
+        if (currentSource) { currentSource.onended = null; currentSource.stop(); }
+      } catch (_) {}
+      currentSource = null;
       ttsPlaying = false;
     }
-
-    let ttsPlaying = false;
 
     async function speak(text, onEnd) {
       if (!voiceOn || !text) { onEnd && onEnd(); return; }
       stopAudio();
+      if (!audioCtx) { onEnd && onEnd(); return; }
       try {
         const r = await fetch(CFG.apiBase + '/api/tts', {
           method: 'POST',
@@ -272,14 +282,33 @@
           body: JSON.stringify({ text }),
         });
         if (!r.ok) { onEnd && onEnd(); return; }
-        const blob = await r.blob();
-        currentAudioUrl = URL.createObjectURL(blob);
-        audioEl.src = currentAudioUrl;
-        audioEl.onplay   = () => { ttsPlaying = true;  if (session) suppressSession(); };
-        audioEl.onended  = () => { stopAudio(); if (session) resumeSession(); onEnd && onEnd(); };
-        audioEl.onerror  = () => { stopAudio(); if (session) resumeSession(); onEnd && onEnd(); };
-        await audioEl.play().catch(() => { onEnd && onEnd(); });
+        const buf = await r.arrayBuffer();
+        // Some browsers (Safari) only support the older callback form of
+        // decodeAudioData, so fall back gracefully.
+        const audioBuffer = await new Promise((resolve, reject) => {
+          try {
+            const p = audioCtx.decodeAudioData(buf, resolve, reject);
+            if (p && p.then) p.then(resolve, reject);
+          } catch (e) { reject(e); }
+        });
+        if (audioCtx.state === 'suspended' && audioCtx.resume) {
+          try { await audioCtx.resume(); } catch (_) {}
+        }
+        const src = audioCtx.createBufferSource();
+        src.buffer = audioBuffer;
+        src.connect(audioCtx.destination);
+        currentSource = src;
+        ttsPlaying = true;
+        if (session) suppressSession();
+        src.onended = () => {
+          if (currentSource === src) currentSource = null;
+          ttsPlaying = false;
+          if (session) resumeSession();
+          onEnd && onEnd();
+        };
+        src.start(0);
       } catch (_) {
+        ttsPlaying = false;
         onEnd && onEnd();
       }
     }
