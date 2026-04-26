@@ -223,7 +223,23 @@
     // ── TTS (ElevenLabs via /api/tts) ──────────────────────────────────────
     let voiceOn = localStorage.getItem('bettyVoiceOn') !== '0';
     const audioEl = new Audio();
+    audioEl.preload = 'auto';
     let currentAudioUrl = null;
+    let audioUnlocked = false;
+
+    // iOS blocks programmatic audio.play() unless the element has been
+    // played at least once inside a user gesture. Call this from any tap
+    // handler to unlock; subsequent speak() calls then work from anywhere.
+    const SILENT_MP3 = 'data:audio/mpeg;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgP/7kGQAD/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+    function unlockAudio() {
+      if (audioUnlocked) return;
+      audioUnlocked = true;
+      try {
+        audioEl.src = SILENT_MP3;
+        const p = audioEl.play();
+        if (p && p.then) p.then(() => audioEl.pause()).catch(() => {});
+      } catch (_) {}
+    }
 
     function updateVoiceBtn() {
       voiceBtn.textContent = voiceOn ? '🔊' : '🔇';
@@ -440,6 +456,7 @@
     }
 
     fab.addEventListener('click', () => {
+      unlockAudio();
       fab.classList.add('open');
       panel.classList.add('open');
       renderIntro();
@@ -449,7 +466,7 @@
       fab.classList.remove('open');
       panel.classList.remove('open');
     });
-    send.addEventListener('click', submit);
+    send.addEventListener('click', () => { unlockAudio(); submit(); });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
     });
@@ -623,10 +640,9 @@
       };
 
       mic.addEventListener('click', () => {
+        unlockAudio();
         if (session && !session.ended) {
-          // Active session: tap toggles it off
           if (mic.classList.contains('waiting')) {
-            // SR died and we're waiting for resume — restart from this gesture
             mic.classList.remove('waiting');
             try { spawnRec(); } catch (_) {}
             return;
