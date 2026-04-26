@@ -519,7 +519,7 @@
     const POST_INTERIM_MS = 1500;
     // After a FINAL result the recognizer has already committed that segment;
     // we can submit much faster.
-    const POST_FINAL_MS   = 350;
+    const POST_FINAL_MS   = 200;
     // How long to wait for the user to start talking after Betty's reply.
     const FOLLOWUP_WAIT_TO_SPEAK_MS = 12000;
     // Persistent session — started once by a user tap and kept alive across
