@@ -544,6 +544,42 @@ const TOOLS = [
     },
   },
   {
+    name: 'send_slack_to_crew_batch',
+    description: 'Send the standard scheduling Slack DM (with Accept/Decline buttons + auto-reminder) to specific crew for MULTIPLE events. One DM per event. Used after a batch crew confirmation. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventIds:       { type: 'array', items: { type: 'string' }, minItems: 1 },
+        recipientNames: { type: 'array', items: { type: 'string' }, minItems: 1, description: 'Crew short names, or ["All Crew"]' },
+        dateLabels:     { type: 'array', items: { type: 'string' }, description: 'Optional human dates aligned with eventIds for the chip summary' },
+      },
+      required: ['eventIds','recipientNames'],
+    },
+    summarize: (i) => {
+      const who   = (i.recipientNames || []).join(', ');
+      const dates = (i.dateLabels || []).join(', ');
+      return dates
+        ? `DM ${who} about ${dates}?`
+        : `DM ${who} about ${i.eventIds.length} events?`;
+    },
+    async execute(input, role, authHeader) {
+      const lines = [];
+      for (let i = 0; i < input.eventIds.length; i++) {
+        const eid   = input.eventIds[i];
+        const label = (input.dateLabels && input.dateLabels[i]) || eid;
+        try {
+          const r = await schedulerSlack(eid, input.recipientNames, authHeader);
+          const sent = (r.sent || []).join(', ') || 'no one';
+          lines.push(`${label}: ${sent}`);
+        } catch (e) {
+          lines.push(`${label}: error ${e.message}`);
+        }
+      }
+      return { ok: true, message: `Sent. ${lines.join(' · ')}.` };
+    },
+  },
+  {
     name: 'send_slack_to_crew',
     description: 'Send a scheduling Slack DM (with Accept/Decline buttons and a 15-min auto-reminder) to specific crew for a single event. recipientNames is an array of short names, or ["All Crew"] to DM everyone assigned to the event. Gated.',
     gated: true,
@@ -678,8 +714,8 @@ async function executeConfirmed(name, input, role, authHeader) {
   const text = result.message || 'Done.';
 
   // After a crew change on a specific person, offer to Slack them about it.
-  const crewTools = new Set(['confirm_crew_member', 'set_tentative_crew', 'remove_crew_member']);
-  if (crewTools.has(name) && input.eventId && input.name) {
+  const singleCrewTools = new Set(['confirm_crew_member', 'set_tentative_crew', 'remove_crew_member']);
+  if (singleCrewTools.has(name) && input.eventId && input.name) {
     return {
       text,
       pending: {
@@ -687,6 +723,20 @@ async function executeConfirmed(name, input, role, authHeader) {
         name: 'send_slack_to_crew',
         input: { eventId: input.eventId, recipientNames: [input.name] },
         summary: `Send ${input.name} a Slack notification of the change?`,
+      },
+    };
+  }
+  // Batch crew confirm → batch Slack offer (one DM per event).
+  if (name === 'confirm_crew_member_batch' && input.name && Array.isArray(input.assignments) && input.assignments.length) {
+    const eventIds   = input.assignments.map(a => a.eventId);
+    const dateLabels = input.assignments.map(a => a.dateLabel || a.eventId);
+    return {
+      text,
+      pending: {
+        toolUseId: 'followup-slack-batch-' + Date.now(),
+        name: 'send_slack_to_crew_batch',
+        input: { eventIds, dateLabels, recipientNames: [input.name] },
+        summary: `Send ${input.name} a Slack DM for each: ${dateLabels.join(', ')}?`,
       },
     };
   }
