@@ -21,7 +21,7 @@
 #chat-panel {
   position: fixed; right: 20px; bottom: 20px; z-index: 9999;
   width: 420px; max-width: calc(100vw - 40px);
-  height: 600px; max-height: calc(100vh - 40px);
+  height: 600px; max-height: calc(100dvh - 40px);
   background: #161920; border: 1px solid #2a2f3a;
   border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.6);
   display: none; flex-direction: column; overflow: hidden;
@@ -104,7 +104,16 @@
 @keyframes chatDot { 0%,80%,100% { transform: scale(.6); opacity: .4; } 40% { transform: scale(1); opacity: 1; } }
 
 @media (max-width: 680px) {
-  #chat-panel { right: 10px; bottom: 10px; width: calc(100vw - 20px); height: calc(100vh - 20px); }
+  /* Use dvh + a top safe-area inset so the address bar can't cover the
+     header (auth button, voice toggle, close × ). env(safe-area-inset-*)
+     handles iPhone notch / home indicator too. */
+  #chat-panel {
+    right: 10px; bottom: 10px;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    width: calc(100vw - 20px);
+    height: auto;
+    max-height: none;
+  }
   #chat-fab { right: 10px; bottom: 10px; }
 }
 
