@@ -209,7 +209,14 @@ When the user gives a date in natural language:
 - ALWAYS resolve it using the "Date ladder" above — never compute days of the week yourself. The ladder is the source of truth.
 - Then find the CREW SCHEDULE row whose DATE field EXACTLY matches the resolved YYYY-MM-DD.
 - If NO row exactly matches, do NOT substitute a nearby date. Ask briefly: "I don't see an event on Friday, April 24. Did you mean another date?"
-- If multiple rows match, ask which one.`;
+- If multiple rows match, ask which one.
+
+When calling crew-change tools, ALWAYS populate a dateLabel from the snapshot's DATE field (e.g. "Mon Apr 27") so the confirmation chip shows the actual date. Don't omit dateLabel.
+
+When the user requests crew assignment for multiple days/events at once (e.g. "Monday through Wednesday", "Friday and Saturday", "the next three shop days"):
+- Use confirm_crew_member_batch ONCE with all the assignments — never fire confirm_crew_member multiple times.
+- Resolve each date to its eventId + context from the snapshot.
+- The chip will list all dates so the user can confirm everything in one tap.`;
 
 const SCHEDULER_BASE = 'https://bvscheduler.vercel.app';
 const SCHEDULE_TABLE = 'tbliRwbSSEznesxhV';
@@ -336,13 +343,14 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        eventId: { type: 'string', description: 'Airtable recordId of the CREW SCHEDULE event' },
-        context: { type: 'string', enum: ['setup','strike','shop','hq'] },
-        name:    { type: 'string', description: 'Crew short name (e.g. "Dylan")' },
+        eventId:   { type: 'string', description: 'Airtable recordId of the CREW SCHEDULE event' },
+        context:   { type: 'string', enum: ['setup','strike','shop','hq'] },
+        name:      { type: 'string', description: 'Crew short name (e.g. "Dylan")' },
+        dateLabel: { type: 'string', description: 'Human-readable date label for the confirmation chip, e.g. "Monday Apr 27" (extracted from the snapshot DATE field)' },
       },
-      required: ['eventId','context','name'],
+      required: ['eventId','context','name','dateLabel'],
     },
-    summarize: (i) => `Confirm ${i.name} for ${i.context} on the selected event?`,
+    summarize: (i) => `Confirm ${i.name} for ${i.context} on ${i.dateLabel}?`,
     async execute(input, role, authHeader) {
       const map = CREW_FIELD_BY_CONTEXT[input.context];
       if (!map) return { error: 'Invalid context' };
@@ -367,13 +375,14 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        eventId: { type: 'string' },
-        context: { type: 'string', enum: ['setup','strike','shop','hq'] },
-        name:    { type: 'string' },
+        eventId:   { type: 'string' },
+        context:   { type: 'string', enum: ['setup','strike','shop','hq'] },
+        name:      { type: 'string' },
+        dateLabel: { type: 'string', description: 'Human-readable date for the chip (e.g. "Monday Apr 27")' },
       },
-      required: ['eventId','context','name'],
+      required: ['eventId','context','name','dateLabel'],
     },
-    summarize: (i) => `Add ${i.name} as tentative for ${i.context}?`,
+    summarize: (i) => `Add ${i.name} as tentative for ${i.context} on ${i.dateLabel}?`,
     async execute(input, role, authHeader) {
       const map = CREW_FIELD_BY_CONTEXT[input.context];
       if (!map) return { error: 'Invalid context' };
@@ -388,19 +397,75 @@ const TOOLS = [
     },
   },
   {
+    name: 'confirm_crew_member_batch',
+    description: 'Confirm the SAME crew member for MULTIPLE event/context pairs at once. Use when the user requests several days in one breath, e.g. "confirm Andrew for shop Monday through Wednesday" or "set Dylan as confirmed for setup on Friday and strike on Saturday". Single chip, single confirmation, batch execution.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Crew short name' },
+        assignments: {
+          type:  'array',
+          minItems: 1,
+          description: 'List of event+context pairs to confirm this crew member for',
+          items: {
+            type: 'object',
+            properties: {
+              eventId:   { type: 'string' },
+              context:   { type: 'string', enum: ['setup','strike','shop','hq'] },
+              dateLabel: { type: 'string', description: 'Human-readable date label, e.g. "Mon Apr 27"' },
+            },
+            required: ['eventId','context','dateLabel'],
+          },
+        },
+      },
+      required: ['name','assignments'],
+    },
+    summarize: (i) => {
+      const list = (i.assignments || []).map(a => `${a.context} on ${a.dateLabel}`);
+      const joined = list.length <= 1 ? list.join('') :
+        list.length === 2 ? list.join(' and ') :
+        list.slice(0, -1).join(', ') + ', and ' + list.slice(-1);
+      return `Confirm ${i.name} for ${joined}?`;
+    },
+    async execute(input, role, authHeader) {
+      const results = [];
+      for (const a of (input.assignments || [])) {
+        const map = CREW_FIELD_BY_CONTEXT[a.context];
+        if (!map) { results.push(`skip ${a.context}: invalid context`); continue; }
+        try {
+          const rec = await fetchEventRecord(a.eventId);
+          const confirmed = rec.fields[map.confirmed] || [];
+          const tentative = rec.fields[map.tentative] || [];
+          if (confirmed.includes(input.name)) { results.push(`${a.dateLabel}: already confirmed`); continue; }
+          const fields = {};
+          fields[map.keyConfirmed] = [...confirmed, input.name];
+          fields[map.keyTentative] = tentative.filter(n => n !== input.name);
+          await schedulerPatchCrew(a.eventId, fields, authHeader);
+          results.push(`${a.dateLabel} ✓`);
+        } catch (e) {
+          results.push(`${a.dateLabel}: ${e.message}`);
+        }
+      }
+      _snapshot = null;
+      return { ok: true, message: `Done. ${results.join(', ')}.` };
+    },
+  },
+  {
     name: 'remove_crew_member',
     description: 'Remove a crew member from tentative AND confirmed lists for an event + context. Gated.',
     gated: true,
     input_schema: {
       type: 'object',
       properties: {
-        eventId: { type: 'string' },
-        context: { type: 'string', enum: ['setup','strike','shop','hq'] },
-        name:    { type: 'string' },
+        eventId:   { type: 'string' },
+        context:   { type: 'string', enum: ['setup','strike','shop','hq'] },
+        name:      { type: 'string' },
+        dateLabel: { type: 'string', description: 'Human-readable date for the chip (e.g. "Monday Apr 27")' },
       },
-      required: ['eventId','context','name'],
+      required: ['eventId','context','name','dateLabel'],
     },
-    summarize: (i) => `Remove ${i.name} from ${i.context}?`,
+    summarize: (i) => `Remove ${i.name} from ${i.context} on ${i.dateLabel}?`,
     async execute(input, role, authHeader) {
       const map = CREW_FIELD_BY_CONTEXT[input.context];
       if (!map) return { error: 'Invalid context' };
