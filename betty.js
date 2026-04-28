@@ -372,7 +372,7 @@
             headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
             body: JSON.stringify(action === 'confirm'
               ? { confirm: { name: pending.name, input: pending.input }, tz: clientTZ() }
-              : { cancel: true, tz: clientTZ() }),
+              : { cancel: { name: pending.name }, tz: clientTZ() }),
           });
           const data = await resp.json().catch(() => ({}));
           typingEl.remove();

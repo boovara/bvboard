@@ -744,7 +744,14 @@ export default async function handler(req, res) {
 
   // Cancellation path — don't do anything, just acknowledge.
   if (req.body.cancel) {
-    return res.status(200).json({ text: 'Cancelled.', role });
+    const cancelledName = (req.body.cancel && req.body.cancel.name) || '';
+    let text = 'Cancelled.';
+    // Slack offer is a non-critical follow-up to an already-completed action
+    // (e.g. crew confirmation). Make it crystal clear the prior action stands.
+    if (cancelledName === 'send_slack_to_crew') {
+      text = 'No Slack sent. The change is still saved.';
+    }
+    return res.status(200).json({ text, role });
   }
 
   if (!Array.isArray(messages) || !messages.length) {
