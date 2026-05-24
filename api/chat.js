@@ -373,6 +373,35 @@ async function schedulerCreateShopRecord(date, authHeader) {
   return r.json();
 }
 
+async function deleteScheduleRow(rowId) {
+  const url = `https://api.airtable.com/v0/${AT_BASE}/${SCHEDULE_TABLE}/${rowId}`;
+  const r = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${AT_TOKEN}` },
+  });
+  if (!r.ok) throw new Error(`Airtable delete ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+// True if a CREW SCHEDULE row has no event AND no crew assigned anywhere.
+// Such rows are dead placeholders and should be deleted to keep the calendar
+// from accumulating empty cards on a date.
+function rowIsEmptyPlaceholder(fields) {
+  const f = fields || {};
+  if (f.EVENT || f.TYPE) return false;
+  const crewFields = [
+    'SHOP - Confirmed', 'SHOP - Tentative',
+    'HQ - Confirmed', 'HQ - Tentative',
+    'SETUP – Confirmed Crew', 'SETUP - Tentative',
+    'STRIKE – Confirmed Crew', 'STRIKE - Tentative',
+    'DAY OFF CREW',
+  ];
+  for (const fn of crewFields) {
+    if (Array.isArray(f[fn]) && f[fn].length > 0) return false;
+  }
+  return true;
+}
+
 async function fetchScheduleRowsForDate(date) {
   const url = `https://api.airtable.com/v0/${AT_BASE}/${SCHEDULE_TABLE}`
     + `?filterByFormula=${encodeURIComponent(`{DATE}='${date}'`)}`;
@@ -586,6 +615,13 @@ const TOOLS = [
         removeFields[ctxMap.keyConfirmed] = confirmed;
         removeFields[ctxMap.keyTentative] = tentative;
         await schedulerPatchCrew(r.id, removeFields, authHeader);
+        // If this leaves the row totally empty (no event, no crew), delete it.
+        const post = Object.assign({}, r.fields);
+        post[ctxMap.confirmed] = confirmed;
+        post[ctxMap.tentative] = tentative;
+        if (rowIsEmptyPlaceholder(post)) {
+          try { await deleteScheduleRow(r.id); } catch (_) {}
+        }
       }
 
       // ── Add to the TO date (auto-create row if needed) ────────────────────
@@ -756,6 +792,13 @@ const TOOLS = [
       fields[map.keyConfirmed] = confirmed;
       fields[map.keyTentative] = tentative;
       await schedulerPatchCrew(input.eventId, fields, authHeader);
+      // Delete the row if it's now an empty placeholder.
+      const post = Object.assign({}, rec.fields);
+      post[map.confirmed] = confirmed;
+      post[map.tentative] = tentative;
+      if (rowIsEmptyPlaceholder(post)) {
+        try { await deleteScheduleRow(input.eventId); } catch (_) {}
+      }
       _snapshot = null;
       return { ok: true, message: `Removed ${input.name} from ${input.context}.` };
     },
