@@ -569,17 +569,23 @@ const TOOLS = [
       const ctxMap  = CREW_FIELD_BY_CONTEXT[input.context];
       if (!ctxMap) return { error: 'Invalid context (must be shop or hq)' };
 
-      // ── Remove from the FROM date ────────────────────────────────────────
+      // ── Remove from EVERY row on the FROM date that contains the name ────
+      // We can't reliably guess which placeholder Perry is on — find by
+      // membership in the relevant field on any row for the date.
       const fromRows = await fetchScheduleRowsForDate(input.fromDate);
-      let fromPlaceholder = fromRows.find(r => r.fields['SHOP CREW'] === true);
-      if (!fromPlaceholder) fromPlaceholder = fromRows.find(r => !r.fields.EVENT && !r.fields.TYPE);
-      if (fromPlaceholder) {
-        const confirmed = (fromPlaceholder.fields[ctxMap.confirmed] || []).filter(n => n !== input.name);
-        const tentative = (fromPlaceholder.fields[ctxMap.tentative] || []).filter(n => n !== input.name);
+      const fromRowsWithName = fromRows.filter(r => {
+        const conf = r.fields[ctxMap.confirmed] || [];
+        const tent = r.fields[ctxMap.tentative] || [];
+        return conf.includes(input.name) || tent.includes(input.name);
+      });
+      let fromPlaceholder = fromRowsWithName[0] || null; // pick any matching row for the slack/result eventId
+      for (const r of fromRowsWithName) {
+        const confirmed = (r.fields[ctxMap.confirmed] || []).filter(n => n !== input.name);
+        const tentative = (r.fields[ctxMap.tentative] || []).filter(n => n !== input.name);
         const removeFields = {};
         removeFields[ctxMap.keyConfirmed] = confirmed;
         removeFields[ctxMap.keyTentative] = tentative;
-        await schedulerPatchCrew(fromPlaceholder.id, removeFields, authHeader);
+        await schedulerPatchCrew(r.id, removeFields, authHeader);
       }
 
       // ── Add to the TO date (auto-create row if needed) ────────────────────
