@@ -12,7 +12,7 @@ const verify = require('./_verify');
 const AT_TOKEN = process.env.AT_ACCESS_TOKEN;
 const AT_BASE  = 'app5la8omfQHS9pvf';
 const ANT_KEY  = process.env.ANTHROPIC_API_KEY;
-const MODEL    = 'claude-haiku-4-5-20251001';
+const MODEL    = 'claude-sonnet-4-5-20250929';
 
 const TABLES = {
   bvBoard:       'tblMcvsvQg5vRgwgG', // BV Board (tasks, supply, project codes)
