@@ -677,14 +677,21 @@ async function runToolLoop(messages, role, authHeader, dateCtx) {
   for (let iter = 0; iter < 5; iter++) {
     const snapshot = await getSnapshot(false);
     const dayDigest = buildDayByDayDigest(snapshot, dateCtx);
+    // Hide the raw crewSchedule from the JSON dump — the digest is authoritative.
+    // Leaving it visible let Haiku pattern-match across dates. Out-of-window
+    // schedule questions are rare; reroute via "I can only see the next 14 days".
+    const snapshotForPrompt = Object.assign({}, snapshot);
+    delete snapshotForPrompt.crewSchedule;
     const snapshotText =
       `Context: today=${dateCtx.today} (${dateCtx.weekday}), caller_timezone=${dateCtx.tz}, caller_role=${role || 'not signed in'}.\n`
       + 'Date ladder (use these — do not compute your own):\n'
       + dateCtx.ladder.map(l => '  ' + l).join('\n')
-      + '\n\nDAY-BY-DAY SCHEDULE DIGEST for the next 14 days. This is the AUTHORITATIVE per-day breakdown — for any question about "who is working" or "what is happening" on a specific date in this range, use ONLY the named crew shown for that exact date below. Days marked "NO ROWS" have nobody assigned; do not infer or guess.\n'
+      + '\n\n=== DAY-BY-DAY SCHEDULE DIGEST (the ONLY source for crew assignments and events) ===\n'
+      + 'For any question about who is working or what is scheduled on a specific date, the answer must come from the matching line below — and ONLY that line. Days marked "NO ROWS" have nobody assigned and no events; for those days, the answer is literally "no one assigned" / "nothing scheduled". Do NOT copy crew names from a different day. Do NOT assume weeks repeat.\n\n'
       + dayDigest
-      + '\n\nRaw Airtable snapshot (for reference on items outside the 14-day window, projects, supply, etc.):\n'
-      + JSON.stringify(snapshot, null, 2);
+      + '\n=== END DIGEST ===\n\n'
+      + 'Other Airtable data (projects, supply, Amazon orders, crew roster, days off). This data does NOT contain crew assignments — for those, use the digest above:\n'
+      + JSON.stringify(snapshotForPrompt, null, 2);
 
     const body = {
       model:      MODEL,
