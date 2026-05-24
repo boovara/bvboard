@@ -182,7 +182,16 @@ function buildDayByDayDigest(snapshot, dateCtx) {
     const ymd = d.toLocaleDateString('en-CA', { timeZone: safeTZ });
     const wk  = d.toLocaleDateString('en-US', { timeZone: safeTZ, weekday: 'long' });
     const md  = d.toLocaleDateString('en-US', { timeZone: safeTZ, month: 'long', day: 'numeric' });
-    const rows = (snapshot.crewSchedule || []).filter(r => r.DATE === ymd);
+    const allRows = (snapshot.crewSchedule || []).filter(r => r.DATE === ymd);
+    // Skip rows whose linked Project Status is canceled / closed / no-response /
+    // thank-you. Those events are dead; Betty shouldn't surface them.
+    const rows = allRows.filter(r => {
+      const status = r['Status (from Project Link)'];
+      if (!status) return true;
+      const joined = (Array.isArray(status) ? status.join(' ') : String(status)).toLowerCase();
+      return !joined.includes('cancel') && !joined.includes('closed')
+          && !joined.includes('no response') && !joined.includes('thank you');
+    });
     let header = `${wk}, ${md} (${ymd})`;
     if (i === 0) header += ' [today]';
     else if (i === 1) header += ' [tomorrow]';
@@ -194,6 +203,7 @@ function buildDayByDayDigest(snapshot, dateCtx) {
     const parts = [];
     for (const r of rows) {
       const fragments = [];
+      fragments.push(`eventId=${r.id}`);
       if (r.EVENT) fragments.push(`event "${String(r.EVENT).trim()}"${r.TYPE ? ` (${r.TYPE})` : ''}`);
       if (r['SHOP - Confirmed'])     fragments.push(`shop confirmed: ${r['SHOP - Confirmed'].join(', ')}`);
       if (r['SHOP - Tentative'])     fragments.push(`shop tentative: ${r['SHOP - Tentative'].join(', ')}`);
@@ -738,7 +748,8 @@ async function runToolLoop(messages, role, authHeader, dateCtx) {
       + 'Date ladder (use these — do not compute your own):\n'
       + dateCtx.ladder.map(l => '  ' + l).join('\n')
       + `\n\n=== DAY-BY-DAY SCHEDULE DIGEST (the ONLY in-prompt source for crew + events, covers 30 days back through 30 days forward) ===\n`
-      + 'For any question about who is working or what is scheduled on a date IN THIS WINDOW, the answer must come from the matching line below — and ONLY that line. Days marked "NO ROWS" have nobody assigned and no events; for those days, the answer is literally "no one assigned" / "nothing scheduled". Do NOT copy crew names from a different day. Do NOT assume weeks repeat.\n\n'
+      + 'For any question about who is working or what is scheduled on a date IN THIS WINDOW, the answer must come from the matching line below — and ONLY that line. Days marked "NO ROWS" have nobody assigned and no events; for those days, the answer is literally "no one assigned" / "nothing scheduled". Do NOT copy crew names from a different day. Do NOT assume weeks repeat. Canceled / closed projects are already filtered out — they never appear in the digest.\n\n'
+      + 'Each non-empty day begins with eventId=<recXXX> for each row on that date. When you call any crew or event tool, you MUST pass that exact eventId from the digest line whose date matches the user request. NEVER invent an eventId or reuse one from a different date.\n\n'
       + 'For dates OUTSIDE this window (more than 30 days past or future), call the lookup_schedule_by_date_range tool to fetch them on demand. Do not guess.\n\n'
       + dayDigest
       + '\n=== END DIGEST ===\n\n'
