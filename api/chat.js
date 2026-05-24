@@ -289,6 +289,11 @@ When the user gives a date in natural language:
 
 When calling crew-change tools, ALWAYS populate a dateLabel from the snapshot's DATE field (e.g. "Mon Apr 27") so the confirmation chip shows the actual date. Don't omit dateLabel.
 
+Choosing the right crew tool:
+- SHOP or HQ assignments are NOT tied to any event. Always use assign_shop_or_hq(name, date, context, status, dateLabel). This tool will reuse the day's existing placeholder row or create one if the date has no rows yet. Never refuse a shop/HQ assignment because the day has no events scheduled.
+- SETUP or STRIKE assignments belong to a specific event. Use confirm_crew_member / set_tentative_crew / remove_crew_member with the eventId of that event row (the eventId is shown in each digest line).
+- If the user just says "add Perry to Tuesday" with no context, default to shop.
+
 When the user requests crew assignment for multiple days/events at once (e.g. "Monday through Wednesday", "Friday and Saturday", "the next three shop days"):
 - Use confirm_crew_member_batch ONCE with all the assignments — never fire confirm_crew_member multiple times.
 - Resolve each date to its eventId + context from the snapshot.
@@ -355,6 +360,25 @@ async function schedulerDeleteDayOff(id, authHeader) {
   });
   if (!r.ok) throw new Error(`Scheduler ${r.status}: ${await r.text()}`);
   return r.json();
+}
+
+async function schedulerCreateShopRecord(date, authHeader) {
+  const r = await fetch(`${SCHEDULER_BASE}/api/create-shop-record`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: authHeader },
+    body: JSON.stringify({ date }),
+  });
+  if (!r.ok) throw new Error(`Scheduler create-shop-record ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function fetchScheduleRowsForDate(date) {
+  const url = `https://api.airtable.com/v0/${AT_BASE}/${SCHEDULE_TABLE}`
+    + `?filterByFormula=${encodeURIComponent(`{DATE}='${date}'`)}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${AT_TOKEN}` } });
+  if (!r.ok) throw new Error(`Airtable ${r.status}: ${await r.text()}`);
+  const data = await r.json();
+  return data.records || [];
 }
 
 async function schedulerSlack(recordId, recipientNames, authHeader) {
@@ -454,6 +478,64 @@ const TOOLS = [
       if (!r.ok) return { error: `Airtable ${r.status}: ${await r.text()}` };
       _snapshot = null;
       return { ok: true, message: `Added task: "${text}"` };
+    },
+  },
+  {
+    name: 'assign_shop_or_hq',
+    description: 'Assign a crew member to SHOP or HQ for a given date — independent of any event. Use this for any shop or HQ assignment, NOT confirm_crew_member. If no row exists for the date yet, this tool will auto-create a shop-day placeholder row first. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:      { type: 'string',  description: 'Crew short name (e.g. "Dylan")' },
+        date:      { type: 'string',  description: 'YYYY-MM-DD' },
+        context:   { type: 'string',  enum: ['shop','hq'] },
+        status:    { type: 'string',  enum: ['confirmed','tentative'], description: 'Defaults to confirmed' },
+        dateLabel: { type: 'string',  description: 'Human-readable date for the chip (e.g. "Mon May 25")' },
+      },
+      required: ['name','date','context','dateLabel'],
+    },
+    summarize: (i) => {
+      const st = (i.status || 'confirmed');
+      const ctxLabel = i.context === 'hq' ? 'HQ' : 'shop';
+      return st === 'confirmed'
+        ? `Confirm ${i.name} for ${ctxLabel} on ${i.dateLabel}?`
+        : `Add ${i.name} as tentative for ${ctxLabel} on ${i.dateLabel}?`;
+    },
+    async execute(input, role, authHeader) {
+      const status  = input.status || 'confirmed';
+      const ctxMap  = CREW_FIELD_BY_CONTEXT[input.context];
+      if (!ctxMap) return { error: 'Invalid context (must be shop or hq)' };
+
+      // Find an existing placeholder row for this date — prefer one with
+      // SHOP CREW=true or one without an EVENT/TYPE. If none, create one.
+      const rows = await fetchScheduleRowsForDate(input.date);
+      let placeholder = rows.find(r => r.fields['SHOP CREW'] === true);
+      if (!placeholder) placeholder = rows.find(r => !r.fields.EVENT && !r.fields.TYPE);
+      if (!placeholder) {
+        const created = await schedulerCreateShopRecord(input.date, authHeader);
+        placeholder = { id: created.id, fields: created.fields || {} };
+      }
+
+      const confirmedField = ctxMap.confirmed;
+      const tentativeField = ctxMap.tentative;
+      const targetField    = status === 'confirmed' ? confirmedField : tentativeField;
+      const targetKey      = status === 'confirmed' ? ctxMap.keyConfirmed : ctxMap.keyTentative;
+      const existing       = placeholder.fields[targetField] || [];
+      if (existing.includes(input.name)) {
+        return { ok: true, message: `${input.name} is already ${status} for ${input.context} on ${input.dateLabel}.` };
+      }
+      // If they were on the opposite list (e.g. tentative → confirmed), drop from there.
+      const otherField   = status === 'confirmed' ? tentativeField : confirmedField;
+      const otherKey     = status === 'confirmed' ? ctxMap.keyTentative : ctxMap.keyConfirmed;
+      const otherList    = (placeholder.fields[otherField] || []).filter(n => n !== input.name);
+
+      const fields = {};
+      fields[targetKey] = [...existing, input.name];
+      fields[otherKey]  = otherList;
+      await schedulerPatchCrew(placeholder.id, fields, authHeader);
+      _snapshot = null;
+      return { ok: true, message: `Added ${input.name} to ${input.context} ${status} on ${input.dateLabel}.` };
     },
   },
   {
