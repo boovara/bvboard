@@ -1367,7 +1367,7 @@ function toAtFields(item, section) {
     Name:      (item.text || item.shapeType || section).slice(0, 60),
     UpdatedAt: item._updatedAt,
   };
-  if (section === 'supply') { f.Ordered = !!item.ordered; f.Shipped = !!item.shipped; f.Arrived = !!item.arrived; }
+  if (section === 'supply') { f.Ordered = !!item.ordered; f.Shipped = !!item.shipped; f.Arrived = !!item.arrived; if (item.orderUrl) f['Order URL'] = item.orderUrl; if (item.vendor) f['Vendor'] = item.vendor; }
   if (section === 'task')   { f.Done = !!item.done; }
   if (section === 'sticky') { f.Color = item.color || ''; f.PosX = item.x || 0; f.PosY = item.y || 0; }
   if (section === 'canvas') {
@@ -1383,7 +1383,7 @@ function toAtFields(item, section) {
 function fromAtRecord(rec, section) {
   const f = rec.fields;
   const item = { id: f.LocalID, text: f.Text || '', _airtableId: rec.id, _updatedAt: f.UpdatedAt || '' };
-  if (section === 'supply') { item.ordered = !!f.Ordered; item.shipped = !!f.Shipped; item.arrived = !!f.Arrived; }
+  if (section === 'supply') { item.ordered = !!f.Ordered; item.shipped = !!f.Shipped; item.arrived = !!f.Arrived; item.orderUrl = f['Order URL'] || null; item.vendor = f['Vendor'] || null; }
   if (section === 'task')   { item.done = !!f.Done; }
   if (section === 'sticky') { item.color = f.Color || '#f0f0f0'; item.x = f.PosX || 0; item.y = f.PosY || 0; }
   if (section === 'canvas') {
@@ -1478,9 +1478,11 @@ async function pullFromAirtable() {
           // Preserve locally-cached fields that live outside the BV Board table
           if (section === 'supply') {
             merged.thumbnailUrl     = local.thumbnailUrl     || null;
-            merged.orderUrl         = local.orderUrl         || null;
+            // orderUrl: local cache wins for Amazon items (set by sync); Airtable wins for vendor items
+            merged.orderUrl         = local.orderUrl         || merged.orderUrl || null;
             merged.productUrl       = local.productUrl       || null;
             merged.expectedDelivery = local.expectedDelivery || null;
+            merged.vendor           = merged.vendor          || local.vendor    || null;
           }
           localArr[localIdx] = merged;
         }
@@ -2052,18 +2054,23 @@ function mkSupplyRow(item) {
 
   badges.append(bOrd, bShip, bArr);
 
-  // Amazon link — use product URL or fall back to search
+  // Order link — use product/order URL; label based on vendor
   if (item.ordered) {
-    const aLink = document.createElement('a');
-    aLink.className = 'task-link-btn';
-    aLink.href = item.productUrl || item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
-    aLink.target = '_blank';
-    aLink.rel = 'noopener noreferrer';
-    aLink.title = 'View on Amazon';
-    aLink.innerHTML = '&#x2197;';
-    aLink.addEventListener('click', e => e.stopPropagation());
-    aLink.addEventListener('touchend', e => e.stopPropagation());
-    badges.appendChild(aLink);
+    const linkUrl = item.productUrl || item.orderUrl
+      || (item.vendor ? null : 'https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
+    if (linkUrl) {
+      const isAmazon = linkUrl.includes('amazon.com');
+      const aLink = document.createElement('a');
+      aLink.className = 'task-link-btn';
+      aLink.href = linkUrl;
+      aLink.target = '_blank';
+      aLink.rel = 'noopener noreferrer';
+      aLink.title = isAmazon ? 'View on Amazon' : 'View Order';
+      aLink.innerHTML = '&#x2197;';
+      aLink.addEventListener('click', e => e.stopPropagation());
+      aLink.addEventListener('touchend', e => e.stopPropagation());
+      badges.appendChild(aLink);
+    }
   }
 
   footer.appendChild(badges);
