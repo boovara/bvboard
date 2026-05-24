@@ -473,6 +473,65 @@ const TOOLS = [
     },
   },
   {
+    name: 'scan_empty_placeholders',
+    description: 'Scan CREW SCHEDULE for empty placeholder rows in a date range (rows with no event AND no crew assigned anywhere). Returns a list with dates and recordIds. Read-only — use this to see what cleanup_empty_placeholders would delete.',
+    gated: false,
+    public: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+        endDate:   { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+      },
+      required: ['startDate','endDate'],
+    },
+    async execute(input) {
+      const padBefore = new Date(input.startDate + 'T00:00:00Z'); padBefore.setUTCDate(padBefore.getUTCDate() - 1);
+      const padAfter  = new Date(input.endDate   + 'T00:00:00Z'); padAfter.setUTCDate(padAfter.getUTCDate() + 1);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const rows = await lookupScheduleRange(fmt(padBefore), fmt(padAfter));
+      const empties = rows.filter(r => rowIsEmptyPlaceholder(r));
+      return {
+        ok: true,
+        count: empties.length,
+        empties: empties.map(r => ({ id: r.id, date: r.DATE })),
+      };
+    },
+  },
+  {
+    name: 'cleanup_empty_placeholders',
+    description: 'Delete empty CREW SCHEDULE placeholder rows in a date range. A row is "empty" if it has no event AND no crew assigned in any field. Safe to run — events and rows with real crew assignments are never touched. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+        endDate:   { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+        rangeLabel:{ type: 'string', description: 'Human-readable range for the chip (e.g. "May 2026")' },
+      },
+      required: ['startDate','endDate','rangeLabel'],
+    },
+    summarize: (i) => `Delete empty placeholder rows in ${i.rangeLabel}?`,
+    async execute(input, role, authHeader) {
+      const padBefore = new Date(input.startDate + 'T00:00:00Z'); padBefore.setUTCDate(padBefore.getUTCDate() - 1);
+      const padAfter  = new Date(input.endDate   + 'T00:00:00Z'); padAfter.setUTCDate(padAfter.getUTCDate() + 1);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const rows = await lookupScheduleRange(fmt(padBefore), fmt(padAfter));
+      const empties = rows.filter(r => rowIsEmptyPlaceholder(r));
+      let deleted = 0;
+      const failed = [];
+      for (const r of empties) {
+        try { await deleteScheduleRow(r.id); deleted++; }
+        catch (e) { failed.push(`${r.DATE || r.id}: ${e.message}`); }
+      }
+      _snapshot = null;
+      if (failed.length === 0) {
+        return { ok: true, message: `Deleted ${deleted} empty row${deleted === 1 ? '' : 's'} in ${input.rangeLabel}.` };
+      }
+      return { ok: true, message: `Deleted ${deleted}, ${failed.length} failed: ${failed.join('; ')}.` };
+    },
+  },
+  {
     name: 'add_task',
     description: 'Add a new task to the BV Board Tasks section.',
     gated: false,
