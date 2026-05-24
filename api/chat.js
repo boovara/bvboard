@@ -406,8 +406,12 @@ function rowIsEmptyPlaceholder(fields) {
 }
 
 async function fetchScheduleRowsForDate(date) {
+  // Airtable's DATE field is a datetime under the hood — direct string
+  // comparison like {DATE}='2026-05-27' doesn't match. DATETIME_FORMAT
+  // coerces it to a YYYY-MM-DD string for reliable equality.
+  const formula = `DATETIME_FORMAT({DATE}, 'YYYY-MM-DD')='${date}'`;
   const url = `https://api.airtable.com/v0/${AT_BASE}/${SCHEDULE_TABLE}`
-    + `?filterByFormula=${encodeURIComponent(`{DATE}='${date}'`)}`;
+    + `?filterByFormula=${encodeURIComponent(formula)}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${AT_TOKEN}` } });
   if (!r.ok) throw new Error(`Airtable ${r.status}: ${await r.text()}`);
   const data = await r.json();
