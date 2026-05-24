@@ -753,7 +753,7 @@ async function executeConfirmed(name, input, role, authHeader) {
   return { text };
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // GET /api/chat?debug=1 → size breakdown per section (no Anthropic call).
   if (req.method === 'GET' && req.query?.debug) {
     try {
