@@ -185,7 +185,10 @@ function buildDayByDayDigest(snapshot, dateCtx) {
     const allRows = (snapshot.crewSchedule || []).filter(r => r.DATE === ymd);
     // Skip rows whose linked Project Status is canceled / closed / no-response /
     // thank-you. Those events are dead; Betty shouldn't surface them.
+    // Also skip rows that are empty placeholders (no event, no crew anywhere)
+    // — they're calendar clutter and should be treated as "nothing scheduled".
     const rows = allRows.filter(r => {
+      if (rowIsEmptyPlaceholder(r)) return false;
       const status = r['Status (from Project Link)'];
       if (!status) return true;
       const joined = (Array.isArray(status) ? status.join(' ') : String(status)).toLowerCase();
