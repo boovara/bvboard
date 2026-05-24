@@ -105,10 +105,11 @@ async function buildSnapshot() {
     else if (s === 'canvas'  || s === 'sticky')  bySection.canvas.push(rec);
   }
 
-  // Pacific-default window is fine for the ±14d/60d cache-level filter —
-  // actual "today" is injected per-request based on the caller's timezone.
+  // Pacific-default window is fine for the cache-level filter — actual "today"
+  // is injected per-request based on the caller's timezone. Widened to -30/+60
+  // so the day-by-day digest can show a full month of history.
   const now = new Date();
-  const minDate = new Date(now); minDate.setDate(minDate.getDate() - 14);
+  const minDate = new Date(now); minDate.setDate(minDate.getDate() - 30);
   const maxDate = new Date(now); maxDate.setDate(maxDate.getDate() + 60);
   const inWindow = (dstr) => {
     if (!dstr) return false;
@@ -166,14 +167,17 @@ async function getSnapshot(refresh) {
   return _snapshot;
 }
 
-// Build a per-day digest covering today + next 14 days. Each day lists ONLY
-// the CREW SCHEDULE rows whose DATE field is that literal day. Empty days are
-// explicit. This eliminates Betty's ability to pattern-match across days.
+// Build a per-day digest covering [today - 30d, today + 30d]. Each day lists
+// ONLY the CREW SCHEDULE rows whose DATE field is that literal day. Empty
+// days are explicit. Eliminates Betty's ability to pattern-match across days.
+const DIGEST_BACK_DAYS    = 30;
+const DIGEST_FORWARD_DAYS = 30;
+
 function buildDayByDayDigest(snapshot, dateCtx) {
   const safeTZ = dateCtx.tz;
   const today = new Date();
   const lines = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = -DIGEST_BACK_DAYS; i <= DIGEST_FORWARD_DAYS; i++) {
     const d = new Date(today.getTime() + i * 86400000);
     const ymd = d.toLocaleDateString('en-CA', { timeZone: safeTZ });
     const wk  = d.toLocaleDateString('en-US', { timeZone: safeTZ, weekday: 'long' });
@@ -182,6 +186,7 @@ function buildDayByDayDigest(snapshot, dateCtx) {
     let header = `${wk}, ${md} (${ymd})`;
     if (i === 0) header += ' [today]';
     else if (i === 1) header += ' [tomorrow]';
+    else if (i === -1) header += ' [yesterday]';
     if (rows.length === 0) {
       lines.push(`${header}: NO ROWS — nobody assigned, no events.`);
       continue;
@@ -358,7 +363,51 @@ async function schedulerSlack(recordId, recipientNames, authHeader) {
 // ── Tool definitions ─────────────────────────────────────────────────────
 // Each tool has: { name, description, input_schema, gated, execute(input, role, authHeader) }
 // gated=true means Betty proposes the action; client shows Confirm/Cancel.
+// Direct Airtable fetch for arbitrary date ranges — used by the lookup tool
+// so Betty can answer questions outside the day-by-day digest window
+// (which covers -30 to +30 days).
+async function lookupScheduleRange(startDate, endDate) {
+  const formula = `AND(IS_AFTER({DATE},'${startDate}'),IS_BEFORE({DATE},'${endDate}'))`;
+  const url = `https://api.airtable.com/v0/${AT_BASE}/${SCHEDULE_TABLE}`
+    + `?filterByFormula=${encodeURIComponent(formula)}`
+    + `&fields[]=DATE&fields[]=DAY&fields[]=EVENT&fields[]=TYPE`
+    + `&fields[]=SHOP%20-%20Confirmed&fields[]=SHOP%20-%20Tentative`
+    + `&fields[]=HQ%20-%20Confirmed&fields[]=HQ%20-%20Tentative`
+    + `&fields[]=SETUP%20%E2%80%93%20Confirmed%20Crew&fields[]=SETUP%20-%20Tentative`
+    + `&fields[]=STRIKE%20%E2%80%93%20Confirmed%20Crew&fields[]=STRIKE%20-%20Tentative`
+    + `&fields[]=DAY%20OFF%20CREW`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${AT_TOKEN}` } });
+  if (!r.ok) throw new Error(`Airtable ${r.status}: ${await r.text()}`);
+  const data = await r.json();
+  return (data.records || []).map(rec => ({ id: rec.id, ...rec.fields }));
+}
+
 const TOOLS = [
+  {
+    name: 'lookup_schedule_by_date_range',
+    description: 'Fetch CREW SCHEDULE rows for an arbitrary date range, useful for questions outside the day-by-day digest window (more than 30 days in the past or future). startDate and endDate are inclusive YYYY-MM-DD. Returns an array of rows with their crew assignments. Read-only — does not require admin.',
+    gated: false,
+    public: true, // anyone signed in OR not can call this read-only tool
+    input_schema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+        endDate:   { type: 'string', description: 'YYYY-MM-DD, inclusive' },
+      },
+      required: ['startDate','endDate'],
+    },
+    async execute(input) {
+      // Filter uses IS_AFTER/BEFORE which are exclusive — pad by one day on each side.
+      const padBefore = new Date(input.startDate + 'T00:00:00Z'); padBefore.setUTCDate(padBefore.getUTCDate() - 1);
+      const padAfter  = new Date(input.endDate   + 'T00:00:00Z'); padAfter.setUTCDate(padAfter.getUTCDate() + 1);
+      const pad = (d) => d.toISOString().slice(0, 10);
+      const rows = await lookupScheduleRange(pad(padBefore), pad(padAfter));
+      if (rows.length === 0) {
+        return { ok: true, rows: [], message: `No CREW SCHEDULE rows between ${input.startDate} and ${input.endDate}.` };
+      }
+      return { ok: true, rows };
+    },
+  },
   {
     name: 'add_task',
     description: 'Add a new task to the BV Board Tasks section.',
@@ -666,8 +715,10 @@ const TOOLS = [
 ];
 
 function toolsForRole(role) {
-  if (role !== 'admin') return []; // only admins get write tools
-  return TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+  // Read-only "public" tools are available to everyone (including unsigned-in).
+  // Other tools are admin-only.
+  const allowed = TOOLS.filter(t => t.public || role === 'admin');
+  return allowed.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 }
 
 async function runToolLoop(messages, role, authHeader, dateCtx) {
@@ -686,11 +737,12 @@ async function runToolLoop(messages, role, authHeader, dateCtx) {
       `Context: today=${dateCtx.today} (${dateCtx.weekday}), caller_timezone=${dateCtx.tz}, caller_role=${role || 'not signed in'}.\n`
       + 'Date ladder (use these — do not compute your own):\n'
       + dateCtx.ladder.map(l => '  ' + l).join('\n')
-      + '\n\n=== DAY-BY-DAY SCHEDULE DIGEST (the ONLY source for crew assignments and events) ===\n'
-      + 'For any question about who is working or what is scheduled on a specific date, the answer must come from the matching line below — and ONLY that line. Days marked "NO ROWS" have nobody assigned and no events; for those days, the answer is literally "no one assigned" / "nothing scheduled". Do NOT copy crew names from a different day. Do NOT assume weeks repeat.\n\n'
+      + `\n\n=== DAY-BY-DAY SCHEDULE DIGEST (the ONLY in-prompt source for crew + events, covers 30 days back through 30 days forward) ===\n`
+      + 'For any question about who is working or what is scheduled on a date IN THIS WINDOW, the answer must come from the matching line below — and ONLY that line. Days marked "NO ROWS" have nobody assigned and no events; for those days, the answer is literally "no one assigned" / "nothing scheduled". Do NOT copy crew names from a different day. Do NOT assume weeks repeat.\n\n'
+      + 'For dates OUTSIDE this window (more than 30 days past or future), call the lookup_schedule_by_date_range tool to fetch them on demand. Do not guess.\n\n'
       + dayDigest
       + '\n=== END DIGEST ===\n\n'
-      + 'Other Airtable data (projects, supply, Amazon orders, crew roster, days off). This data does NOT contain crew assignments — for those, use the digest above:\n'
+      + 'Other Airtable data (projects, supply, Amazon orders, crew roster, days off). This data does NOT contain crew assignments — for those, use the digest above or the lookup tool:\n'
       + JSON.stringify(snapshotForPrompt, null, 2);
 
     const body = {
