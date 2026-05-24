@@ -166,6 +166,50 @@ async function getSnapshot(refresh) {
   return _snapshot;
 }
 
+// Build a per-day digest covering today + next 14 days. Each day lists ONLY
+// the CREW SCHEDULE rows whose DATE field is that literal day. Empty days are
+// explicit. This eliminates Betty's ability to pattern-match across days.
+function buildDayByDayDigest(snapshot, dateCtx) {
+  const safeTZ = dateCtx.tz;
+  const today = new Date();
+  const lines = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today.getTime() + i * 86400000);
+    const ymd = d.toLocaleDateString('en-CA', { timeZone: safeTZ });
+    const wk  = d.toLocaleDateString('en-US', { timeZone: safeTZ, weekday: 'long' });
+    const md  = d.toLocaleDateString('en-US', { timeZone: safeTZ, month: 'long', day: 'numeric' });
+    const rows = (snapshot.crewSchedule || []).filter(r => r.DATE === ymd);
+    let header = `${wk}, ${md} (${ymd})`;
+    if (i === 0) header += ' [today]';
+    else if (i === 1) header += ' [tomorrow]';
+    if (rows.length === 0) {
+      lines.push(`${header}: NO ROWS — nobody assigned, no events.`);
+      continue;
+    }
+    const parts = [];
+    for (const r of rows) {
+      const fragments = [];
+      if (r.EVENT) fragments.push(`event "${String(r.EVENT).trim()}"${r.TYPE ? ` (${r.TYPE})` : ''}`);
+      if (r['SHOP - Confirmed'])     fragments.push(`shop confirmed: ${r['SHOP - Confirmed'].join(', ')}`);
+      if (r['SHOP - Tentative'])     fragments.push(`shop tentative: ${r['SHOP - Tentative'].join(', ')}`);
+      if (r['HQ - Confirmed'])       fragments.push(`HQ confirmed: ${r['HQ - Confirmed'].join(', ')}`);
+      if (r['HQ - Tentative'])       fragments.push(`HQ tentative: ${r['HQ - Tentative'].join(', ')}`);
+      if (r['SETUP – Confirmed Crew']) fragments.push(`setup confirmed: ${r['SETUP – Confirmed Crew'].join(', ')}`);
+      if (r['SETUP - Tentative'])           fragments.push(`setup tentative: ${r['SETUP - Tentative'].join(', ')}`);
+      if (r['STRIKE – Confirmed Crew'])fragments.push(`strike confirmed: ${r['STRIKE – Confirmed Crew'].join(', ')}`);
+      if (r['STRIKE - Tentative'])          fragments.push(`strike tentative: ${r['STRIKE - Tentative'].join(', ')}`);
+      if (r['DAY OFF CREW'])         fragments.push(`day off: ${r['DAY OFF CREW'].join(', ')}`);
+      if (fragments.length === 0) {
+        parts.push(`row ${r.id} present but no event/crew fields`);
+      } else {
+        parts.push(fragments.join('; '));
+      }
+    }
+    lines.push(`${header}: ${parts.join(' | ')}`);
+  }
+  return lines.join('\n');
+}
+
 const SYSTEM_INSTRUCTIONS = `You are Betty, a voice assistant for BooVara Designs — a small event-fabrication shop. Your replies will be spoken aloud.
 
 You have a live JSON snapshot of the company's Airtable base (tasks, supply needs, project codes, Amazon orders, crew roster, crew schedule, days off). Answer directly and concisely.
@@ -632,11 +676,14 @@ async function runToolLoop(messages, role, authHeader, dateCtx) {
   let workingMessages = messages.slice();
   for (let iter = 0; iter < 5; iter++) {
     const snapshot = await getSnapshot(false);
+    const dayDigest = buildDayByDayDigest(snapshot, dateCtx);
     const snapshotText =
       `Context: today=${dateCtx.today} (${dateCtx.weekday}), caller_timezone=${dateCtx.tz}, caller_role=${role || 'not signed in'}.\n`
       + 'Date ladder (use these — do not compute your own):\n'
       + dateCtx.ladder.map(l => '  ' + l).join('\n')
-      + '\n\nCurrent Airtable snapshot:\n'
+      + '\n\nDAY-BY-DAY SCHEDULE DIGEST for the next 14 days. This is the AUTHORITATIVE per-day breakdown — for any question about "who is working" or "what is happening" on a specific date in this range, use ONLY the named crew shown for that exact date below. Days marked "NO ROWS" have nobody assigned; do not infer or guess.\n'
+      + dayDigest
+      + '\n\nRaw Airtable snapshot (for reference on items outside the 14-day window, projects, supply, etc.):\n'
       + JSON.stringify(snapshot, null, 2);
 
     const body = {
