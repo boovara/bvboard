@@ -291,6 +291,7 @@ When calling crew-change tools, ALWAYS populate a dateLabel from the snapshot's 
 
 Choosing the right crew tool:
 - SHOP or HQ assignments are NOT tied to any event. Always use assign_shop_or_hq(name, date, context, status, dateLabel). This tool will reuse the day's existing placeholder row or create one if the date has no rows yet. Never refuse a shop/HQ assignment because the day has no events scheduled.
+- MOVE a crew member from one shop/HQ day to another: use move_shop_or_hq(name, fromDate, toDate, context, status, fromDateLabel, toDateLabel) — ONE tool call, atomic remove+add. NEVER use remove + assign as separate calls. Watch for the words "move", "switch", "reschedule", "instead", "change [X]'s day".
 - SETUP or STRIKE assignments belong to a specific event. Use confirm_crew_member / set_tentative_crew / remove_crew_member with the eventId of that event row (the eventId is shown in each digest line).
 - If the user just says "add Perry to Tuesday" with no context, default to shop.
 
@@ -535,7 +536,78 @@ const TOOLS = [
       fields[otherKey]  = otherList;
       await schedulerPatchCrew(placeholder.id, fields, authHeader);
       _snapshot = null;
-      return { ok: true, message: `Added ${input.name} to ${input.context} ${status} on ${input.dateLabel}.` };
+      return {
+        ok: true,
+        eventId: placeholder.id,
+        message: `Added ${input.name} to ${input.context} ${status} on ${input.dateLabel}.`,
+      };
+    },
+  },
+  {
+    name: 'move_shop_or_hq',
+    description: 'Move a crew member from SHOP or HQ on one date to the same context on another date — atomic remove + add. Use this whenever the user says "move", "switch", "reschedule", or "instead". One chip, one tap, both rows updated. Gated.',
+    gated: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        name:          { type: 'string',  description: 'Crew short name' },
+        fromDate:      { type: 'string',  description: 'YYYY-MM-DD they are leaving' },
+        toDate:        { type: 'string',  description: 'YYYY-MM-DD they are moving to' },
+        context:       { type: 'string',  enum: ['shop','hq'] },
+        status:        { type: 'string',  enum: ['confirmed','tentative'], description: 'Defaults to confirmed' },
+        fromDateLabel: { type: 'string',  description: 'Human label e.g. "Mon May 26"' },
+        toDateLabel:   { type: 'string',  description: 'Human label e.g. "Tue May 27"' },
+      },
+      required: ['name','fromDate','toDate','context','fromDateLabel','toDateLabel'],
+    },
+    summarize: (i) => {
+      const ctx = i.context === 'hq' ? 'HQ' : 'shop';
+      return `Move ${i.name} from ${ctx} on ${i.fromDateLabel} to ${ctx} on ${i.toDateLabel}?`;
+    },
+    async execute(input, role, authHeader) {
+      const status  = input.status || 'confirmed';
+      const ctxMap  = CREW_FIELD_BY_CONTEXT[input.context];
+      if (!ctxMap) return { error: 'Invalid context (must be shop or hq)' };
+
+      // ── Remove from the FROM date ────────────────────────────────────────
+      const fromRows = await fetchScheduleRowsForDate(input.fromDate);
+      let fromPlaceholder = fromRows.find(r => r.fields['SHOP CREW'] === true);
+      if (!fromPlaceholder) fromPlaceholder = fromRows.find(r => !r.fields.EVENT && !r.fields.TYPE);
+      if (fromPlaceholder) {
+        const confirmed = (fromPlaceholder.fields[ctxMap.confirmed] || []).filter(n => n !== input.name);
+        const tentative = (fromPlaceholder.fields[ctxMap.tentative] || []).filter(n => n !== input.name);
+        const removeFields = {};
+        removeFields[ctxMap.keyConfirmed] = confirmed;
+        removeFields[ctxMap.keyTentative] = tentative;
+        await schedulerPatchCrew(fromPlaceholder.id, removeFields, authHeader);
+      }
+
+      // ── Add to the TO date (auto-create row if needed) ────────────────────
+      const toRows = await fetchScheduleRowsForDate(input.toDate);
+      let toPlaceholder = toRows.find(r => r.fields['SHOP CREW'] === true);
+      if (!toPlaceholder) toPlaceholder = toRows.find(r => !r.fields.EVENT && !r.fields.TYPE);
+      if (!toPlaceholder) {
+        const created = await schedulerCreateShopRecord(input.toDate, authHeader);
+        toPlaceholder = { id: created.id, fields: created.fields || {} };
+      }
+      const targetField = status === 'confirmed' ? ctxMap.confirmed : ctxMap.tentative;
+      const targetKey   = status === 'confirmed' ? ctxMap.keyConfirmed : ctxMap.keyTentative;
+      const otherKey    = status === 'confirmed' ? ctxMap.keyTentative : ctxMap.keyConfirmed;
+      const otherField  = status === 'confirmed' ? ctxMap.tentative : ctxMap.confirmed;
+      const existing    = toPlaceholder.fields[targetField] || [];
+      const otherList   = (toPlaceholder.fields[otherField] || []).filter(n => n !== input.name);
+      const addFields = {};
+      addFields[targetKey] = existing.includes(input.name) ? existing : [...existing, input.name];
+      addFields[otherKey]  = otherList;
+      await schedulerPatchCrew(toPlaceholder.id, addFields, authHeader);
+
+      _snapshot = null;
+      return {
+        ok: true,
+        eventId: toPlaceholder.id,
+        fromEventId: fromPlaceholder ? fromPlaceholder.id : null,
+        message: `Moved ${input.name} from ${input.fromDateLabel} to ${input.toDateLabel} (${input.context} ${status}).`,
+      };
     },
   },
   {
@@ -953,6 +1025,30 @@ async function executeConfirmed(name, input, role, authHeader) {
         name: 'send_slack_to_crew_batch',
         input: { eventIds, dateLabels, recipientNames: [input.name] },
         summary: `Send ${input.name} a Slack DM for each: ${dateLabels.join(', ')}?`,
+      },
+    };
+  }
+  // Shop/HQ assignment (single date) → Slack offer using the row's eventId.
+  if (name === 'assign_shop_or_hq' && input.name && result.eventId) {
+    return {
+      text,
+      pending: {
+        toolUseId: 'followup-slack-' + Date.now(),
+        name: 'send_slack_to_crew',
+        input: { eventId: result.eventId, recipientNames: [input.name] },
+        summary: `Send ${input.name} a Slack notification about ${input.dateLabel}?`,
+      },
+    };
+  }
+  // Shop/HQ move → Slack offer for the NEW date (the new placeholder row).
+  if (name === 'move_shop_or_hq' && input.name && result.eventId) {
+    return {
+      text,
+      pending: {
+        toolUseId: 'followup-slack-' + Date.now(),
+        name: 'send_slack_to_crew',
+        input: { eventId: result.eventId, recipientNames: [input.name] },
+        summary: `Send ${input.name} a Slack notification of the move to ${input.toDateLabel}?`,
       },
     };
   }
