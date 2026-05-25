@@ -60,6 +60,14 @@ export default async function handler(req, res) {
 
     if (!resp.ok || !job) {
       console.error('QB Time error:', resp.status, JSON.stringify(data));
+      if (resp.status === 401 || resp.status === 403) {
+        return res.status(500).send(html(
+          'QB Time Token Expired',
+          `<p>The QB Time access token stored in Vercel has expired or been revoked.</p>
+           <p style="margin-top:12px">To fix: generate a new token in <strong>QB Time → Feature Add-ons → Manage API Access</strong>, then update <code>QBT_ACCESS_TOKEN</code> in the Vercel environment variables.</p>`,
+          '#c0392b'
+        ));
+      }
       return res.status(500).send(html(
         'QB Time Error',
         `<p>Status ${resp.status}</p><pre style="text-align:left;font-size:12px;overflow:auto">${JSON.stringify(data, null, 2)}</pre>`,
