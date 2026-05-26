@@ -289,8 +289,8 @@
       if (porcupine || !wakeOn || !picovoiceKey) return;
       try {
         const [{ PorcupineWorker }, { WebVoiceProcessor }] = await Promise.all([
-          import('https://cdn.jsdelivr.net/npm/@picovoice/porcupine-web@3.0.3/dist/esm/index.js'),
-          import('https://cdn.jsdelivr.net/npm/@picovoice/web-voice-processor@4.0.10/dist/esm/index.js'),
+          import('https://cdn.jsdelivr.net/npm/@picovoice/porcupine-web@4/dist/esm/index.js'),
+          import('https://cdn.jsdelivr.net/npm/@picovoice/web-voice-processor@4/dist/esm/index.js'),
         ]);
         porcupine = await PorcupineWorker.create(
           picovoiceKey,
@@ -311,7 +311,7 @@
     async function teardownPorcupine() {
       if (!porcupine) return;
       try {
-        const { WebVoiceProcessor } = await import('https://cdn.jsdelivr.net/npm/@picovoice/web-voice-processor@4.0.10/dist/esm/index.js');
+        const { WebVoiceProcessor } = await import('https://cdn.jsdelivr.net/npm/@picovoice/web-voice-processor@4/dist/esm/index.js');
         await WebVoiceProcessor.unsubscribe(porcupine);
         porcupine.terminate();
       } catch (_) {}
