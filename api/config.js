@@ -6,6 +6,7 @@
 export default function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
   res.status(200).json({
-    atToken: process.env.AT_ACCESS_TOKEN || '',
+    atToken:      process.env.AT_ACCESS_TOKEN  || '',
+    picovoiceKey: process.env.PICOVOICE_KEY    || '',
   });
 }

@@ -53,6 +53,7 @@
       +     '<h3>Ask <em>Betty</em></h3>'
       +   '</div>'
       +   '<div style="display:flex; gap:4px; align-items:center;">'
+      +     '<button id="chat-wake-toggle" aria-label="Toggle wake word" title="Toggle &quot;Hey Betty&quot; wake word">👂</button>'
       +     '<button id="chat-voice-toggle" aria-label="Toggle voice" title="Toggle voice replies">🔊</button>'
       +     '<button id="chat-close" aria-label="Close">×</button>'
       +   '</div>'
@@ -98,6 +99,7 @@
     const send  = panel.querySelector('#chat-send');
     const mic   = panel.querySelector('#chat-mic');
     const voiceBtn = panel.querySelector('#chat-voice-toggle');
+    const wakeBtn  = panel.querySelector('#chat-wake-toggle');
     const authBtn  = panel.querySelector('#chat-auth-btn');
     const authLbl  = authBtn.querySelector('.label');
     const pinOverlay = panel.querySelector('#chat-pin-overlay');
@@ -261,6 +263,89 @@
       if (!voiceOn) stopAudio();
     });
 
+    // ── Wake word ("Hey Betty") via Picovoice Porcupine ────────────────────
+    let wakeOn       = localStorage.getItem('bettyWakeOn') !== '0';
+    let porcupine    = null;
+    let porcupineReady = false;
+    let picovoiceKey = '';
+    let currentChatAbort = null;
+    let currentTtsAbort  = null;
+
+    // Pull the picovoice access key from /api/config on widget load.
+    fetch(CFG.apiBase + '/api/config').then(r => r.json()).then(c => {
+      picovoiceKey = c.picovoiceKey || '';
+    }).catch(() => {});
+
+    function updateWakeBtn() {
+      wakeBtn.classList.toggle('off',    !wakeOn);
+      wakeBtn.classList.toggle('active', wakeOn && porcupineReady);
+      wakeBtn.title = wakeOn
+        ? (porcupineReady ? 'Listening for "Hey Betty" — tap to disable' : 'Wake word enabled (initializing…)')
+        : 'Wake word disabled — tap to enable';
+    }
+    updateWakeBtn();
+
+    async function initPorcupine() {
+      if (porcupine || !wakeOn || !picovoiceKey) return;
+      try {
+        const [{ PorcupineWorker }, { WebVoiceProcessor }] = await Promise.all([
+          import('https://cdn.jsdelivr.net/npm/@picovoice/porcupine-web@3.0.3/dist/esm/index.js'),
+          import('https://cdn.jsdelivr.net/npm/@picovoice/web-voice-processor@4.0.10/dist/esm/index.js'),
+        ]);
+        porcupine = await PorcupineWorker.create(
+          picovoiceKey,
+          [{ publicPath: '/Hey-Betty_en_wasm_v4_0_0.ppn', label: 'Hey Betty' }],
+          () => onWakeWord(),
+          { publicPath: '/porcupine_params.pv' },
+        );
+        await WebVoiceProcessor.subscribe(porcupine);
+        porcupineReady = true;
+        updateWakeBtn();
+      } catch (e) {
+        console.error('[betty] Porcupine init failed:', e);
+        porcupineReady = false;
+        updateWakeBtn();
+      }
+    }
+
+    async function teardownPorcupine() {
+      if (!porcupine) return;
+      try {
+        const { WebVoiceProcessor } = await import('https://cdn.jsdelivr.net/npm/@picovoice/web-voice-processor@4.0.10/dist/esm/index.js');
+        await WebVoiceProcessor.unsubscribe(porcupine);
+        porcupine.terminate();
+      } catch (_) {}
+      porcupine = null;
+      porcupineReady = false;
+      updateWakeBtn();
+    }
+
+    function onWakeWord() {
+      // Barge-in: cut Betty off if she's mid-anything, then open the mic.
+      stopAudio();
+      if (currentChatAbort) { try { currentChatAbort.abort(); } catch (_) {} currentChatAbort = null; }
+      if (currentTtsAbort)  { try { currentTtsAbort.abort();  } catch (_) {} currentTtsAbort  = null; }
+      // Open the panel if closed, then start listening.
+      if (!panel.classList.contains('open')) {
+        fab.classList.add('open');
+        panel.classList.add('open');
+        renderIntro();
+      }
+      // Suspend the wake-word listener briefly so the user's actual
+      // utterance doesn't trigger another wake-word detection.
+      if (porcupine && porcupine.pause) { try { porcupine.pause(); } catch (_) {} }
+      lastInputWasVoice = true;
+      try { startListening(); } catch (_) {}
+    }
+
+    wakeBtn.addEventListener('click', () => {
+      wakeOn = !wakeOn;
+      localStorage.setItem('bettyWakeOn', wakeOn ? '1' : '0');
+      if (wakeOn) initPorcupine();
+      else        teardownPorcupine();
+      updateWakeBtn();
+    });
+
     let ttsPlaying = false;
 
     function stopAudio() {
@@ -275,11 +360,13 @@
       if (!voiceOn || !text) { onEnd && onEnd(); return; }
       stopAudio();
       if (!audioCtx) { onEnd && onEnd(); return; }
+      currentTtsAbort = new AbortController();
       try {
         const r = await fetch(CFG.apiBase + '/api/tts', {
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
           body: JSON.stringify({ text }),
+          signal: currentTtsAbort.signal,
         });
         if (!r.ok) { onEnd && onEnd(); return; }
         const buf = await r.arrayBuffer();
@@ -300,11 +387,18 @@
         currentSource = src;
         ttsPlaying = true;
         if (session) suppressSession();
+        // Wake up Porcupine again so the user can interrupt Betty mid-sentence
+        // with another "Hey Betty". Echo cancellation on the mic capture
+        // prevents Betty's own voice from triggering the wake word.
+        if (porcupine && porcupine.resume) { try { porcupine.resume(); } catch (_) {} }
         tlog('TTS audio start (duration ~' + audioBuffer.duration.toFixed(1) + 's)');
         src.onended = () => {
           if (currentSource === src) currentSource = null;
           ttsPlaying = false;
+          currentTtsAbort = null;
           tlog('TTS audio ended');
+          // Resume Porcupine wake-word listening for the next interrupt.
+          if (porcupine && porcupine.resume) { try { porcupine.resume(); } catch (_) {} }
           if (session) resumeSession();
           onEnd && onEnd();
         };
@@ -369,12 +463,14 @@
         chip.classList.add('resolved');
         const typingEl = showTyping();
         try {
+          currentChatAbort = new AbortController();
           const resp = await fetch(CFG.apiBase + '/api/chat', {
             method: 'POST',
             headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
             body: JSON.stringify(action === 'confirm'
               ? { confirm: { name: pending.name, input: pending.input }, tz: clientTZ() }
               : { cancel: { name: pending.name }, tz: clientTZ() }),
+            signal: currentChatAbort.signal,
           });
           const data = await resp.json().catch(() => ({}));
           typingEl.remove();
@@ -459,11 +555,13 @@
       history.push({ role: 'user', content: text });
 
       const typingEl = showTyping();
+      currentChatAbort = new AbortController();
       try {
         const resp = await fetch(CFG.apiBase + '/api/chat', {
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
           body: JSON.stringify({ messages: history, tz: clientTZ() }),
+          signal: currentChatAbort.signal,
         });
         const data = await resp.json().catch(() => ({}));
         typingEl.remove();
@@ -488,6 +586,9 @@
 
     fab.addEventListener('click', () => {
       unlockAudio();
+      // First open of the panel = best opportunity to ask for mic permission
+      // and boot Porcupine inside a user gesture (required by iOS Safari).
+      if (wakeOn && !porcupine) initPorcupine();
       fab.classList.add('open');
       panel.classList.add('open');
       renderIntro();
