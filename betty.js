@@ -300,9 +300,11 @@
         currentSource = src;
         ttsPlaying = true;
         if (session) suppressSession();
+        tlog('TTS audio start (duration ~' + audioBuffer.duration.toFixed(1) + 's)');
         src.onended = () => {
           if (currentSource === src) currentSource = null;
           ttsPlaying = false;
+          tlog('TTS audio ended');
           if (session) resumeSession();
           onEnd && onEnd();
         };
@@ -507,6 +509,10 @@
     // ── Dictation + continuous-listen ──────────────────────────────────────
     // Creates a fresh SpeechRecognition per session — reusing a single
     // instance caused Chrome to end the follow-up session after ~1s.
+    // Set localStorage.bettyDebug = '1' in DevTools to see timing logs.
+    const DBG = (typeof localStorage !== 'undefined' && localStorage.getItem('bettyDebug') === '1');
+    const tlog = (label) => { if (DBG) console.log('[betty]', performance.now().toFixed(0) + 'ms', label); };
+
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     // iOS Safari requires SpeechRecognition.start() to run inside a user
     // gesture. Auto-restart from a timer is silently ignored, so we detect
@@ -543,8 +549,7 @@
 
     function suppressSession() {
       if (!session) return;
-      // Mark the current results as already-processed so they don't bleed
-      // into the next utterance, and pause the silence timer.
+      tlog('suppressSession (TTS starting)');
       session.suppressed = true;
       session.gotSpeech  = false;
       clearTimeout(session.silenceTimer);
@@ -553,15 +558,22 @@
 
     function resumeSession() {
       if (!session) return;
+      // Stop and respawn SR after TTS ends. Reusing the same recognizer left
+      // it with stale audio buffers from Betty's own voice, which made the
+      // user's first 1-2 follow-up utterances get swallowed. A fresh SR
+      // instance starts with a clean buffer and reliably picks up the user.
+      if (DBG) console.log('[betty] resumeSession → respawn fresh SR');
       session.suppressed = false;
       session.gotSpeech  = false;
-      // Bump the result baseline to the current results length so anything
-      // SR transcribed during TTS (Betty's own voice echoing into the mic)
-      // is ignored from now on.
-      if (session.rec && session.rec.__results) {
-        session.resultBaseIndex = session.rec.__results.length;
-      }
-      armSilenceTimer();
+      session.resultBaseIndex = 0;
+      input.value = '';
+      const old = session.rec;
+      session.rec = null;
+      try { old && old.abort && old.abort(); } catch (_) {}
+      try { old && old.stop  && old.stop();  } catch (_) {}
+      // Give the audio subsystem ~150ms to release the mic capture before we
+      // open a fresh recognizer.
+      setTimeout(() => { if (session && !session.ended) spawnRec(); }, 150);
     }
 
     function armSilenceTimer(stage) {
@@ -605,6 +617,7 @@
         session.rec = rec;
 
         rec.onstart = () => {
+          tlog('rec.onstart');
           mic.classList.add('rec');
           mic.classList.remove('waiting');
           armSilenceTimer();
@@ -612,6 +625,7 @@
         rec.onresult = (e) => {
           if (!session || session.suppressed || ttsPlaying) {
             rec.__results = e.results;
+            tlog('rec.onresult ignored (suppressed/ttsPlaying)');
             return;
           }
           rec.__results = e.results;
@@ -625,6 +639,7 @@
           const combined = (final + ' ' + interim).trim();
           input.value = combined;
           if (combined) {
+            tlog('rec.onresult ' + (sawFinal ? 'final' : 'interim') + ' "' + combined + '"');
             session.gotSpeech = true;
             armSilenceTimer(sawFinal ? 'final' : 'interim');
           }
@@ -644,12 +659,16 @@
         };
 
         rec.onend = () => {
+          tlog('rec.onend');
           if (!session || session.ended) { mic.classList.remove('rec'); return; }
           // SR ended on its own — try to relaunch. On iOS this fails silently
           // if we're outside a gesture; we surface that as a "tap to resume"
           // pulse on the mic.
           setTimeout(() => {
             if (!session || session.ended) return;
+            // If resumeSession already kicked off a respawn (rec === null),
+            // don't double-spawn from here.
+            if (session.rec) return;
             try {
               spawnRec();
             } catch (_) {
@@ -660,6 +679,7 @@
           }, 50);
         };
         rec.onerror = (e) => {
+          tlog('rec.onerror ' + (e && e.error));
           const err = e && e.error;
           if (err && err !== 'no-speech' && err !== 'aborted') {
             endSession();
