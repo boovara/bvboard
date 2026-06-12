@@ -2387,7 +2387,7 @@ async function syncAmazonOrders(silent) {
   var btn = document.getElementById('sync-amzn-btn');
   if (btn) btn.classList.add('syncing');
   try {
-    var items = DB.supply.map(function(s) { return { id: s.id, text: s.text || '' }; });
+    var items = DB.supply.map(function(s) { return { id: s.id, text: s.text || '', amazonId: s.amazonId || null }; });
     var resp = await fetch('/api/sync-amazon-orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2400,9 +2400,10 @@ async function syncAmazonOrders(silent) {
       var item = DB.supply.find(function(s) { return s.id === m.taskId; });
       if (item) {
         var st = (m.status || 'ordered').toLowerCase();
-        item.ordered      = true;
-        item.shipped      = (st === 'shipped' || st === 'delivered');
-        item.arrived      = (st === 'delivered');
+        item.amazonId         = m.amazonId             || item.amazonId    || null;
+        item.ordered          = true;
+        item.shipped          = (st === 'shipped' || st === 'delivered');
+        item.arrived          = (st === 'delivered');
         item.orderUrl         = m.orderUrl        || m.productUrl    || null;
         item.productUrl       = m.productUrl      || m.orderUrl      || null;
         item.thumbnailUrl     = m.thumbnailUrl     || item.thumbnailUrl     || null;
@@ -2410,11 +2411,28 @@ async function syncAmazonOrders(silent) {
         changed++;
       }
     });
+    // Auto-create supply items for in-transit Amazon orders with no existing item
+    (data.newItems || []).forEach(function(m) {
+      var st = (m.status || 'ordered').toLowerCase();
+      DB.supply.push({
+        id:               genId(),
+        amazonId:         m.amazonId,
+        text:             m.productName,
+        ordered:          true,
+        shipped:          (st === 'shipped' || st === 'delivered'),
+        arrived:          false,
+        orderUrl:         m.orderUrl        || m.productUrl    || null,
+        productUrl:       m.productUrl      || m.orderUrl      || null,
+        thumbnailUrl:     m.thumbnailUrl    || null,
+        expectedDelivery: m.expectedDelivery || null,
+      });
+      changed++;
+    });
     if (changed) {
       saveDB(); renderSupply();
       if (!silent) showToast(changed + ' item' + (changed > 1 ? 's' : '') + ' synced with Amazon');
     } else {
-      if (!silent) showToast('No Amazon matches found');
+      if (!silent) showToast('No new Amazon orders');
     }
   } catch(e) {
     console.error('Sync Amazon error:', e);

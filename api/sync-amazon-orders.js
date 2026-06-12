@@ -84,6 +84,7 @@ export default async function handler(req, res) {
 
   // ── Match each task ────────────────────────────────────────────────────
   const matches = [];
+  const matchedAmazonIds = new Set();
 
   tasks.forEach(function(task) {
     const taskToks = tokenize(task.text);
@@ -101,10 +102,12 @@ export default async function handler(req, res) {
     });
 
     if (bestProduct) {
+      matchedAmazonIds.add(bestProduct.id);
       const productUrl = bestProduct.productUrl || bestProduct.url
         || 'https://www.amazon.com/s?k=' + encodeURIComponent(bestProduct.name);
       matches.push({
         taskId:           task.id,
+        amazonId:         bestProduct.id,
         productName:      bestProduct.name,
         status:           bestProduct.status,
         orderUrl:         productUrl,
@@ -116,5 +119,28 @@ export default async function handler(req, res) {
     }
   });
 
-  return res.status(200).json({ matches });
+  // ── Return in-transit orders that have no matching supply item ─────────
+  // Also include amazonIds already known to the client (tasks carry them)
+  const knownAmazonIds = new Set(tasks.map(t => t.amazonId).filter(Boolean));
+  const newItems = productIndex
+    .filter(function(p) {
+      return p.status !== 'delivered'
+        && !matchedAmazonIds.has(p.id)
+        && !knownAmazonIds.has(p.id);
+    })
+    .map(function(p) {
+      const productUrl = p.productUrl || p.url
+        || 'https://www.amazon.com/s?k=' + encodeURIComponent(p.name);
+      return {
+        amazonId:         p.id,
+        productName:      p.name,
+        status:           p.status,
+        orderUrl:         productUrl,
+        productUrl:       productUrl,
+        thumbnailUrl:     p.thumbnailUrl     || null,
+        expectedDelivery: p.expectedDelivery || null,
+      };
+    });
+
+  return res.status(200).json({ matches, newItems });
 }
