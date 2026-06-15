@@ -1576,7 +1576,14 @@ function setProjThumbIdx(atId, idx) {
 // ── Pull QB Codes + Current Images from Projects table ───────────────────────
 async function pullProjectCodes() {
   if (!AT_TOKEN) return;
-  const EXCLUDE = new Set(['Completed']);
+  // Drop operationally-dead projects. Substring match so suffixed statuses
+  // like "Canceled - out of budget" are caught. Mirrors api/chat.js so the
+  // panel and Betty stay consistent.
+  const DEAD_STATUS = ['completed', 'canceled', 'cancelled', 'closed', 'no response', 'send thank you'];
+  const isDead = s => {
+    const j = (Array.isArray(s) ? s.join(' ') : String(s || '')).toLowerCase();
+    return DEAD_STATUS.some(d => j.includes(d));
+  };
 
   const baseUrl = `https://api.airtable.com/v0/${AT_BASE}/${AT_PROJ_TID}`
     + `?fields[]=QB+Code&fields[]=Status&fields[]=PID&fields[]=Current+Images`
@@ -1596,7 +1603,7 @@ async function pullProjectCodes() {
   const qbItems = records
     .filter(r => {
       const s = r.fields.Status || [];
-      return s.length === 0 || !s.every(x => EXCLUDE.has(x));
+      return s.length === 0 || !isDead(s);
     })
     .sort((a, b) => (a.fields['QB Code'] || '').localeCompare(b.fields['QB Code'] || ''))
     .map(r => {
