@@ -119,13 +119,17 @@ export default async function handler(req, res) {
     }
   });
 
-  // ── Return in-transit orders that have no matching supply item ─────────
-  // Also include amazonIds already known to the client (tasks carry them)
+  // ── Return orders that have no matching supply item ─────────────────────
+  // Previously excluded already-delivered orders, on the assumption a
+  // still-in-transit order was more useful to surface. In practice this
+  // meant any order that reached Delivered before the dashboard happened to
+  // be open next was silently skipped forever — it was never "in transit"
+  // when seen, and never matched anything, so it just vanished. Also include
+  // amazonIds already known to the client (tasks carry them).
   const knownAmazonIds = new Set(tasks.map(t => t.amazonId).filter(Boolean));
   const newItems = productIndex
     .filter(function(p) {
-      return p.status !== 'delivered'
-        && !matchedAmazonIds.has(p.id)
+      return !matchedAmazonIds.has(p.id)
         && !knownAmazonIds.has(p.id);
     })
     .map(function(p) {
