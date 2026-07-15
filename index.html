@@ -1367,7 +1367,7 @@ function toAtFields(item, section) {
     Name:      (item.text || item.shapeType || section).slice(0, 60),
     UpdatedAt: item._updatedAt,
   };
-  if (section === 'supply') { f.Ordered = !!item.ordered; f.Shipped = !!item.shipped; f.Arrived = !!item.arrived; if (item.orderUrl) f['Order URL'] = item.orderUrl; if (item.vendor) f['Vendor'] = item.vendor; }
+  if (section === 'supply') { f.Ordered = !!item.ordered; f.Shipped = !!item.shipped; f.Arrived = !!item.arrived; f.Removed = !!item.removed; if (item.orderUrl) f['Order URL'] = item.orderUrl; if (item.vendor) f['Vendor'] = item.vendor; }
   if (section === 'task')   { f.Done = !!item.done; }
   if (section === 'sticky') { f.Color = item.color || ''; f.PosX = item.x || 0; f.PosY = item.y || 0; }
   if (section === 'canvas') {
@@ -1383,7 +1383,7 @@ function toAtFields(item, section) {
 function fromAtRecord(rec, section) {
   const f = rec.fields;
   const item = { id: f.LocalID, text: f.Text || '', _airtableId: rec.id, _updatedAt: f.UpdatedAt || '' };
-  if (section === 'supply') { item.ordered = !!f.Ordered; item.shipped = !!f.Shipped; item.arrived = !!f.Arrived; item.orderUrl = f['Order URL'] || null; item.vendor = f['Vendor'] || null; }
+  if (section === 'supply') { item.ordered = !!f.Ordered; item.shipped = !!f.Shipped; item.arrived = !!f.Arrived; item.removed = !!f.Removed; item.orderUrl = f['Order URL'] || null; item.vendor = f['Vendor'] || null; }
   if (section === 'task')   { item.done = !!f.Done; }
   if (section === 'sticky') { item.color = f.Color || '#f0f0f0'; item.x = f.PosX || 0; item.y = f.PosY || 0; }
   if (section === 'canvas') {
@@ -1912,11 +1912,14 @@ function renderSupply() {
     </div>`;
     return;
   }
-  const visible = DB.supply.filter(item => !item.arrived);
+  // Show every item still on the board. Visibility is controlled ONLY by the
+  // user removing an item with the X (item.removed), never by arrival status —
+  // "Arrived" is now just an auto-lit indicator, not a hide trigger.
+  const visible = DB.supply.filter(item => !item.removed);
   if (!visible.length) {
     body.innerHTML = `<div class="q-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-      All items have arrived
+      No items on the board
     </div>`;
     return;
   }
@@ -1954,7 +1957,11 @@ function mkSupplyRow(item) {
     e.stopPropagation();
     el.classList.add('removing');
     el.addEventListener('animationend', () => {
-      DB.supply = DB.supply.filter(i => i.id !== item.id);
+      // Soft-delete: keep the record (so the Amazon auto-sync still sees its
+      // amazonId and won't recreate it) but flag it Removed so it's hidden
+      // here and everywhere the board syncs. Persists to Airtable.
+      item.removed = true;
+      item._updatedAt = new Date().toISOString();
       saveDB(); renderSupply();
     }, {once:true});
   };
@@ -2433,7 +2440,8 @@ async function syncAmazonOrders(silent) {
         text:             m.productName,
         ordered:          true,
         shipped:          (st === 'shipped' || st === 'delivered'),
-        arrived:          false,
+        arrived:          (st === 'delivered'),
+        removed:          false,
         orderUrl:         m.orderUrl        || m.productUrl    || null,
         productUrl:       m.productUrl      || m.orderUrl      || null,
         thumbnailUrl:     m.thumbnailUrl    || null,
