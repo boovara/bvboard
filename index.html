@@ -2408,9 +2408,15 @@ async function syncAmazonOrders(silent) {
       if (item) {
         var st = (m.status || 'ordered').toLowerCase();
         item.amazonId         = m.amazonId             || item.amazonId    || null;
+        // Status only ever ADVANCES — never regress a flag the user (or a
+        // prior sync) already set. Overwriting arrived/shipped here is what
+        // made a manually "Arrived" item reappear on the next sync whenever
+        // Amazon still reported it as Ordered/Shipped. A real Amazon
+        // "Delivered" still auto-marks arrived (auto-hides); the user's own
+        // Arrived click is now permanent.
         item.ordered          = true;
-        item.shipped          = (st === 'shipped' || st === 'delivered');
-        item.arrived          = (st === 'delivered');
+        if (st === 'shipped' || st === 'delivered') item.shipped = true;
+        if (st === 'delivered') item.arrived = true;
         item.orderUrl         = m.orderUrl        || m.productUrl    || null;
         item.productUrl       = m.productUrl      || m.orderUrl      || null;
         item.thumbnailUrl     = m.thumbnailUrl     || item.thumbnailUrl     || null;
