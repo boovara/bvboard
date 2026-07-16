@@ -119,32 +119,19 @@ export default async function handler(req, res) {
     }
   });
 
-  // ── Return orders that have no matching supply item ─────────────────────
-  // Previously excluded already-delivered orders, on the assumption a
-  // still-in-transit order was more useful to surface. In practice this
-  // meant any order that reached Delivered before the dashboard happened to
-  // be open next was silently skipped forever — it was never "in transit"
-  // when seen, and never matched anything, so it just vanished. Also include
-  // amazonIds already known to the client (tasks carry them).
-  const knownAmazonIds = new Set(tasks.map(t => t.amazonId).filter(Boolean));
-  const newItems = productIndex
-    .filter(function(p) {
-      return !matchedAmazonIds.has(p.id)
-        && !knownAmazonIds.has(p.id);
-    })
-    .map(function(p) {
-      const productUrl = p.productUrl || p.url
-        || 'https://www.amazon.com/s?k=' + encodeURIComponent(p.name);
-      return {
-        amazonId:         p.id,
-        productName:      p.name,
-        status:           p.status,
-        orderUrl:         productUrl,
-        productUrl:       productUrl,
-        thumbnailUrl:     p.thumbnailUrl     || null,
-        expectedDelivery: p.expectedDelivery || null,
-      };
-    });
+  // ── Client-side card CREATION is DISABLED (always empty) ────────────────
+  // The browser used to create a Supply card for every unmatched Amazon
+  // order. But Amazon order identity is NOT persisted to Airtable — the
+  // BV Board table has no amazonId field, so a card pulled back from Airtable
+  // has no amazonId, the client can't tell it already exists, and re-creates
+  // it on every 30-minute sync. Across reloads and multiple devices this
+  // multiplied into a flood of duplicate cards (dozens of copies of the same
+  // delivered order). The host routine (amazon-sync.js) is now the SOLE card
+  // creator; it dedups via a persisted "Amazon Order" linked-record field.
+  // The client only UPDATES existing cards' status via `matches` and displays
+  // them — it must never create. Do not re-enable without giving BV Board a
+  // persisted order-id key the client can dedup on.
+  const newItems = [];
 
   return res.status(200).json({ matches, newItems });
 }
