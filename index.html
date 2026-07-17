@@ -1473,6 +1473,10 @@ async function pullFromAirtable() {
         const hasLocalEdits = updatedAt > syncedAt; // changes made after last successful push
         if (hasLocalEdits) {
           local._airtableId = rec.id; // keep local, just cache the record ID
+          // Removal is authoritative: a supply card cleared (X'd) on ANY
+          // device stays cleared here, even over local edits. This is what
+          // stops a stale device from resurrecting cards removed elsewhere.
+          if (section === 'supply' && rec.fields.Removed) local.removed = true;
         } else {
           const merged = fromAtRecord(rec, section);
           // Preserve locally-cached fields that live outside the BV Board table
@@ -3036,6 +3040,21 @@ requestAnimationFrame(() => {
     }
 
     if (AT_TOKEN) {
+      // ── One-time supply reset (2026-07-16) ──────────────────────────────
+      // A client card-creation bug flooded the board with duplicate
+      // Amazon-order cards, and stale browsers kept re-pushing them back to
+      // Airtable. Drop THIS device's local supply list exactly once so it
+      // can't re-upload stale cards; the pull below repopulates supply fresh
+      // from Airtable (the source of truth). Only supply is touched — tasks,
+      // notices, and project codes are left alone.
+      try {
+        if (!localStorage.getItem('bv_supply_reset_20260716')) {
+          DB.supply = [];
+          localStorage.setItem(STORE_KEY, JSON.stringify(DB));
+          localStorage.setItem('bv_supply_reset_20260716', '1');
+        }
+      } catch(_) {}
+
       setSyncDot('syncing');
       pullFromAirtable().then(() => {
         saveDB();
