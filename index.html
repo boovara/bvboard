@@ -3048,10 +3048,10 @@ requestAnimationFrame(() => {
       // from Airtable (the source of truth). Only supply is touched — tasks,
       // notices, and project codes are left alone.
       try {
-        if (!localStorage.getItem('bv_supply_reset_20260716')) {
+        if (!localStorage.getItem('bv_supply_reset_20260718b')) {
           DB.supply = [];
           localStorage.setItem(STORE_KEY, JSON.stringify(DB));
-          localStorage.setItem('bv_supply_reset_20260716', '1');
+          localStorage.setItem('bv_supply_reset_20260718b', '1');
         }
       } catch(_) {}
 
