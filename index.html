@@ -324,89 +324,53 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 9px;
+  gap: 6px;
+  padding: 9px 10px;
   background: rgba(255,255,255,.035);
   border: 1px solid rgba(255,255,255,.07);
   border-radius: 9px;
-  transition: background .12s;
 }
-.supply-item:active { background: rgba(255,255,255,.07); }
+/* Hand-added needs get a left edge so they read apart from Amazon orders. */
+.supply-item.is-manual {
+  border-left: 2px solid rgba(42,140,90,.55);
+  padding-right: 32px; /* clear of the X */
+}
 
-.supply-item-top {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-}
-.supply-thumb {
-  width: 72px;
-  height: 72px;
-  border-radius: 6px;
-  object-fit: contain;
-  background: rgba(255,255,255,.06);
-  flex-shrink: 0;
-  border: 1px solid rgba(255,255,255,.08);
-  display: block;
-}
-.supply-item-info {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
-}
 .supply-name {
   font-size: 11px;
   line-height: 1.45;
   word-break: break-word;
-  cursor: pointer;
   color: var(--text);
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.supply-name.is-arrived { text-decoration: line-through; color: var(--dim); }
 
-/* Expected Delivery label */
-.supply-delivery {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.supply-del-label {
-  font-size: 8px;
+/* PO / job the order belongs to */
+.supply-po {
   font-family: 'Syne', sans-serif;
-  font-weight: 600;
-  letter-spacing: .7px;
-  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .5px;
   color: var(--dim2);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.supply-del-date {
-  font-size: 11px;
-  font-family: 'Syne', sans-serif;
-  font-weight: 800;
-  letter-spacing: .3px;
-  color: var(--accent);
-}
-.supply-del-date.overdue { color: #e05c5c; }
-.supply-del-date.today   { color: #f5c842; }
 
-.supply-item-footer {
+.supply-foot {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
-}
-.supply-badges { display: flex; gap: 4px; align-items: center; flex: 1; flex-wrap: wrap; }
-
-/* Delete button — absolute top-right corner */
-.row-del {
-  position: absolute;
-  top: 7px;
-  right: 7px;
+  margin-top: auto;
 }
 
+/* Status badges. Ordered/Shipped are indicators driven by the Amazon Orders
+   table. Delivered is tappable — Amazon often never confirms delivery, so this
+   is how you record what you already know (see api/order-status.js). */
 .sbadge {
   font-family: 'Syne', sans-serif;
   font-size: 9px;
@@ -416,21 +380,39 @@ body {
   padding: 3px 9px;
   border-radius: 20px;
   border: 1px solid transparent;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: all .15s;
   white-space: nowrap;
   flex-shrink: 0;
+  transition: all .15s;
 }
-/* Ordered badge */
-.sbadge-ordered { background: rgba(245,166,35,.06); border-color: rgba(245,166,35,.2); color: rgba(245,166,35,.4); }
-.sbadge-ordered.active { background: rgba(245,166,35,.2); border-color: rgba(245,166,35,.6); color: #f5a623; }
-/* Shipped badge */
-.sbadge-shipped { background: rgba(74,184,240,.05); border-color: rgba(74,184,240,.15); color: rgba(74,184,240,.35); }
-.sbadge-shipped.active { background: rgba(74,184,240,.15); border-color: rgba(74,184,240,.5); color: #4ab8f0; }
-/* Arrived badge */
-.sbadge-arrived { background: rgba(126,232,162,.05); border-color: rgba(126,232,162,.15); color: rgba(126,232,162,.35); }
-.sbadge-arrived.active { background: rgba(126,232,162,.18); border-color: rgba(126,232,162,.5); color: var(--accent); }
+.sbadge-ordered            { background: rgba(245,166,35,.06);  border-color: rgba(245,166,35,.2);  color: rgba(245,166,35,.4); }
+.sbadge-ordered.active     { background: rgba(245,166,35,.2);   border-color: rgba(245,166,35,.6);  color: #f5a623; }
+.sbadge-shipped            { background: rgba(74,184,240,.05);  border-color: rgba(74,184,240,.15); color: rgba(74,184,240,.35); }
+.sbadge-shipped.active     { background: rgba(74,184,240,.15);  border-color: rgba(74,184,240,.5);  color: #4ab8f0; }
+.sbadge-delivered          { background: rgba(126,232,162,.05); border-color: rgba(126,232,162,.15);color: rgba(126,232,162,.35); }
+.sbadge-delivered.active   { background: rgba(126,232,162,.18); border-color: rgba(126,232,162,.5); color: var(--accent); }
+/* Only Delivered accepts a tap. */
+.sbadge-delivered          { cursor: pointer; touch-action: manipulation; }
+.sbadge-delivered:active   { transform: scale(.94); }
+.sbadge.is-saving          { opacity: .45; pointer-events: none; }
+
+/* Inline ETA, e.g. "TOMORROW" / "THIS FRIDAY 8/22" */
+.supply-eta {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.supply-eta.overdue { color: #e05c5c; }
+.supply-eta.today   { color: #f5c842; }
+
+/* Delete button - manual items only; absolute top-right corner */
+.row-del {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+}
 
 .row-del {
   width: 22px; height: 22px;
@@ -1111,13 +1093,13 @@ input.nt-range::-webkit-slider-thumb {
           <span class="qt-label">Supply Needs</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px;">
-          <button class="sync-amazon-btn" id="sync-amzn-btn">&#x21BB; Sync Amazon</button>
+          <button class="sync-amazon-btn" id="sync-amzn-btn" title="Refresh Amazon orders">&#x21BB;</button>
           <button class="qadd-btn" id="add-supply-btn">
             <span class="qadd-label">+ Add Item</span>
           </button>
         </div>
       </div>
-      <div class="qhdr-sub">Track requests, ordering status &amp; arrivals</div>
+      <div class="qhdr-sub">Amazon orders land here automatically</div>
     </div>
     <div class="qbody qbody-ruled" id="supply-body"></div>
   </div>
@@ -1367,7 +1349,7 @@ function toAtFields(item, section) {
     Name:      (item.text || item.shapeType || section).slice(0, 60),
     UpdatedAt: item._updatedAt,
   };
-  if (section === 'supply') { f.Ordered = !!item.ordered; f.Shipped = !!item.shipped; f.Arrived = !!item.arrived; f.Removed = !!item.removed; if (item.orderUrl) f['Order URL'] = item.orderUrl; if (item.vendor) f['Vendor'] = item.vendor; }
+  if (section === 'supply') { f.Removed = !!item.removed; }
   if (section === 'task')   { f.Done = !!item.done; }
   if (section === 'sticky') { f.Color = item.color || ''; f.PosX = item.x || 0; f.PosY = item.y || 0; }
   if (section === 'canvas') {
@@ -1383,7 +1365,7 @@ function toAtFields(item, section) {
 function fromAtRecord(rec, section) {
   const f = rec.fields;
   const item = { id: f.LocalID, text: f.Text || '', _airtableId: rec.id, _updatedAt: f.UpdatedAt || '' };
-  if (section === 'supply') { item.ordered = !!f.Ordered; item.shipped = !!f.Shipped; item.arrived = !!f.Arrived; item.removed = !!f.Removed; item.orderUrl = f['Order URL'] || null; item.vendor = f['Vendor'] || null; }
+  if (section === 'supply') { item.removed = !!f.Removed; }
   if (section === 'task')   { item.done = !!f.Done; }
   if (section === 'sticky') { item.color = f.Color || '#f0f0f0'; item.x = f.PosX || 0; item.y = f.PosY || 0; }
   if (section === 'canvas') {
@@ -1478,17 +1460,9 @@ async function pullFromAirtable() {
           // stops a stale device from resurrecting cards removed elsewhere.
           if (section === 'supply' && rec.fields.Removed) local.removed = true;
         } else {
-          const merged = fromAtRecord(rec, section);
-          // Preserve locally-cached fields that live outside the BV Board table
-          if (section === 'supply') {
-            merged.thumbnailUrl     = local.thumbnailUrl     || null;
-            // orderUrl: local cache wins for Amazon items (set by sync); Airtable wins for vendor items
-            merged.orderUrl         = local.orderUrl         || merged.orderUrl || null;
-            merged.productUrl       = local.productUrl       || null;
-            merged.expectedDelivery = local.expectedDelivery || null;
-            merged.vendor           = merged.vendor          || local.vendor    || null;
-          }
-          localArr[localIdx] = merged;
+          // A supply card carries no Amazon state any more, so there is
+          // nothing local worth preserving over the Airtable copy.
+          localArr[localIdx] = fromAtRecord(rec, section);
         }
       }
     }
@@ -1906,28 +1880,28 @@ document.getElementById('cfm-ok').addEventListener('click', () => { document.get
 /* ══════════════════════════════════════════════════════
    ── SUPPLY NEEDS ──
 ══════════════════════════════════════════════════════ */
+// Amazon orders live only in memory - they are re-read from the Amazon Orders
+// table on every load. Nothing about them is stored locally or pushed back, so
+// there is no id to keep in sync, nothing to dedup, and nothing to mismatch.
+let AMZN_ORDERS = [];
+
 function renderSupply() {
   const body = document.getElementById('supply-body');
   body.innerHTML = '';
-  if (!DB.supply.length) {
+
+  const manual = DB.supply.filter(item => !item.removed);
+
+  if (!manual.length && !AMZN_ORDERS.length) {
     body.innerHTML = `<div class="q-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-      Tap "+ Add Item" to log supply needs
+      Amazon orders appear here automatically
     </div>`;
     return;
   }
-  // Show every item still on the board. Visibility is controlled ONLY by the
-  // user removing an item with the X (item.removed), never by arrival status —
-  // "Arrived" is now just an auto-lit indicator, not a hide trigger.
-  const visible = DB.supply.filter(item => !item.removed);
-  if (!visible.length) {
-    body.innerHTML = `<div class="q-empty">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-      No items on the board
-    </div>`;
-    return;
-  }
-  visible.forEach(item => body.appendChild(mkSupplyRow(item)));
+
+  // Hand-added needs first (things still to buy), then what's on the way.
+  manual.forEach(item => body.appendChild(mkManualRow(item)));
+  AMZN_ORDERS.forEach(order => body.appendChild(mkOrderCard(order)));
 }
 
 // Returns { label, date, cls } for a delivery date string "YYYY-MM-DD"
@@ -1937,33 +1911,61 @@ function formatDeliveryDate(dateStr) {
   const date = new Date(+p[0], +p[1] - 1, +p[2]);
   const today = new Date(); today.setHours(0,0,0,0);
   const diff = Math.round((date - today) / 86400000);
-  const m = date.getMonth() + 1;
-  const d = date.getDate();
-  const mdStr = m + '/' + d;
+  const mdStr = (date.getMonth() + 1) + '/' + date.getDate();
   const DAYS = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
   const dayName = DAYS[date.getDay()];
-  if (diff < -1)  return { label: 'OVERDUE',        date: mdStr, cls: 'overdue' };
-  if (diff === -1) return { label: 'YESTERDAY',      date: mdStr, cls: 'overdue' };
-  if (diff === 0)  return { label: 'TODAY',          date: mdStr, cls: 'today'   };
-  if (diff === 1)  return { label: 'TOMORROW',       date: mdStr, cls: ''        };
-  if (diff <= 6)   return { label: 'THIS ' + dayName,date: mdStr, cls: ''        };
-  return             { label: dayName,              date: mdStr, cls: ''        };
+  if (diff < -1)   return { label: 'OVERDUE',         date: mdStr, cls: 'overdue' };
+  if (diff === -1) return { label: 'YESTERDAY',       date: mdStr, cls: 'overdue' };
+  if (diff === 0)  return { label: 'TODAY',           date: mdStr, cls: 'today'   };
+  if (diff === 1)  return { label: 'TOMORROW',        date: mdStr, cls: ''        };
+  if (diff <= 6)   return { label: 'THIS ' + dayName, date: mdStr, cls: ''        };
+  return             { label: dayName,                date: mdStr, cls: ''        };
 }
 
-function mkSupplyRow(item) {
-  const el = document.createElement('div');
-  el.className = 'supply-item';
+const STATUS_RANK = { Ordered: 1, Shipped: 2, Delivered: 3 };
 
-  // ── Delete button — absolute top-right ──
+/* Tapping Delivered records what you already know. Amazon frequently never
+   confirms delivery, which used to leave orders stuck at Shipped and showing
+   OVERDUE in red for months. Writes straight to that order's Amazon Orders
+   row, so it sticks across devices and the card then ages off the board.
+   Tapping again reverts to Shipped, in case of a mis-tap. */
+async function markDelivered(e, order, badge) {
+  e.stopPropagation();
+  const next = String(order.status) === 'Delivered' ? 'Shipped' : 'Delivered';
+  const prev = order.status;
+  badge.classList.add('is-saving');
+  try {
+    const resp = await fetch('/api/order-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: order.id, status: next }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    order.status = next;
+    renderSupply();
+    showToast(next === 'Delivered' ? 'Marked delivered' : 'Back to shipped');
+  } catch (err) {
+    console.error('order-status write failed:', err);
+    order.status = prev;
+    badge.classList.remove('is-saving');
+    showToast('Could not save — try again');
+  }
+}
+
+/* ── A hand-added supply need. Just text and an X. ───────────────────────── */
+function mkManualRow(item) {
+  const el = document.createElement('div');
+  el.className = 'supply-item is-manual';
+
   const del = document.createElement('button');
-  del.className = 'row-del'; del.textContent = '✕';
+  del.className = 'row-del';
+  del.textContent = '✕';
   const doDelete = (e) => {
     e.stopPropagation();
     el.classList.add('removing');
     el.addEventListener('animationend', () => {
-      // Soft-delete: keep the record (so the Amazon auto-sync still sees its
-      // amazonId and won't recreate it) but flag it Removed so it's hidden
-      // here and everywhere the board syncs. Persists to Airtable.
+      // Soft-delete so the removal reaches Airtable and every other device,
+      // rather than coming back on the next pull.
       item.removed = true;
       item._updatedAt = new Date().toISOString();
       saveDB(); renderSupply();
@@ -1973,142 +1975,96 @@ function mkSupplyRow(item) {
   del.addEventListener('touchend', e => { e.preventDefault(); doDelete(e); });
   el.appendChild(del);
 
-  // ── Top row: thumbnail + info column ──
-  const top = document.createElement('div');
-  top.className = 'supply-item-top';
-
-  if (item.thumbnailUrl) {
-    const thumbLink = document.createElement('a');
-    thumbLink.href = item.productUrl || item.orderUrl || ('https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
-    thumbLink.target = '_blank';
-    thumbLink.rel = 'noopener noreferrer';
-    thumbLink.addEventListener('click', e => e.stopPropagation());
-    thumbLink.addEventListener('touchend', e => e.stopPropagation());
-    const thumb = document.createElement('img');
-    thumb.className = 'supply-thumb';
-    thumb.src = item.thumbnailUrl;
-    thumb.alt = '';
-    thumb.loading = 'lazy';
-    thumb.onerror = function() { thumbLink.style.display = 'none'; };
-    thumbLink.appendChild(thumb);
-    top.appendChild(thumbLink);
-  }
-
-  const info = document.createElement('div');
-  info.className = 'supply-item-info';
-
   const name = document.createElement('div');
-  name.className = 'supply-name' + (item.arrived ? ' is-arrived' : '');
+  name.className = 'supply-name';
   name.textContent = item.text;
   name.addEventListener('click', () => {
     openInput('Edit Item', 'Item name…', 'Save', val => {
-      item.text = val; saveDB(); renderSupply();
+      item.text = val;
+      item._updatedAt = new Date().toISOString();
+      saveDB(); renderSupply();
     }, item.text);
   });
-  info.appendChild(name);
+  el.appendChild(name);
 
-  // Expected Delivery label (dynamic natural language)
-  if (item.expectedDelivery) {
-    const delInfo = formatDeliveryDate(item.expectedDelivery);
-    if (delInfo) {
-      const deliveryEl = document.createElement('div');
-      deliveryEl.className = 'supply-delivery';
-      const lbl = document.createElement('span');
-      lbl.className = 'supply-del-label';
-      lbl.textContent = 'Expected Delivery:';
-      const dat = document.createElement('span');
-      dat.className = 'supply-del-date' + (delInfo.cls ? ' ' + delInfo.cls : '');
-      dat.textContent = delInfo.label + ', ' + delInfo.date;
-      deliveryEl.append(lbl, dat);
-      info.appendChild(deliveryEl);
-    }
-  }
-
-  top.appendChild(info);
-
-  // ── Footer: status badges + Amazon link ──
-  const footer = document.createElement('div');
-  footer.className = 'supply-item-footer';
-
-  const badges = document.createElement('div');
-  badges.className = 'supply-badges';
-
-  const bOrd = document.createElement('div');
-  bOrd.className = 'sbadge sbadge-ordered' + (item.ordered ? ' active' : '');
-  bOrd.textContent = 'Ordered';
-  const toggleOrdered = (e) => {
-    e.stopPropagation();
-    item.ordered = !item.ordered;
-    if (!item.ordered) { item.shipped = false; item.arrived = false; }
-    saveDB(); renderSupply();
-  };
-  bOrd.addEventListener('click', toggleOrdered);
-  bOrd.addEventListener('touchend', e => { e.preventDefault(); toggleOrdered(e); });
-
-  const bShip = document.createElement('div');
-  bShip.className = 'sbadge sbadge-shipped' + (item.shipped ? ' active' : '');
-  bShip.textContent = 'Shipped';
-  const toggleShipped = (e) => {
-    e.stopPropagation();
-    item.shipped = !item.shipped;
-    if (item.shipped && !item.ordered) item.ordered = true;
-    if (!item.shipped) item.arrived = false;
-    saveDB(); renderSupply();
-  };
-  bShip.addEventListener('click', toggleShipped);
-  bShip.addEventListener('touchend', e => { e.preventDefault(); toggleShipped(e); });
-
-  const bArr = document.createElement('div');
-  bArr.className = 'sbadge sbadge-arrived' + (item.arrived ? ' active' : '');
-  bArr.textContent = item.arrived ? '✓ Arrived' : 'Arrived';
-  const toggleArrived = (e) => {
-    e.stopPropagation();
-    if (!item.arrived) { item.ordered = true; item.shipped = true; }
-    item.arrived = !item.arrived;
-    saveDB(); renderSupply();
-  };
-  bArr.addEventListener('click', toggleArrived);
-  bArr.addEventListener('touchend', e => { e.preventDefault(); toggleArrived(e); });
-
-  badges.append(bOrd, bShip, bArr);
-
-  // Order link — use product/order URL; label based on vendor
-  if (item.ordered) {
-    const linkUrl = item.productUrl || item.orderUrl
-      || (item.vendor ? null : 'https://www.amazon.com/s?k=' + encodeURIComponent(item.text || ''));
-    if (linkUrl) {
-      const isAmazon = linkUrl.includes('amazon.com');
-      const aLink = document.createElement('a');
-      aLink.className = 'task-link-btn';
-      aLink.href = linkUrl;
-      aLink.target = '_blank';
-      aLink.rel = 'noopener noreferrer';
-      aLink.title = isAmazon ? 'View on Amazon' : 'View Order';
-      aLink.innerHTML = '&#x2197;';
-      aLink.addEventListener('click', e => e.stopPropagation());
-      aLink.addEventListener('touchend', e => e.stopPropagation());
-      badges.appendChild(aLink);
-    }
-  }
-
-  footer.appendChild(badges);
-  el.append(top, footer);
   return el;
 }
 
-document.getElementById('add-supply-btn').addEventListener('click', () => {
+/* ── One Amazon order, straight from the Amazon Orders table. Read-only:
+      there is nothing to toggle, edit or dismiss. Delivered orders age off
+      the board on their own (see api/supply-orders.js). ──────────────────── */
+function mkOrderCard(order) {
+  const el = document.createElement('div');
+  el.className = 'supply-item';
+
+  const name = document.createElement('div');
+  name.className = 'supply-name';
+  name.textContent = order.productName;
+  el.appendChild(name);
+
+  if (order.po) {
+    const po = document.createElement('div');
+    po.className = 'supply-po';
+    po.textContent = order.po;
+    po.title = order.po;
+    el.appendChild(po);
+  }
+
+  const foot = document.createElement('div');
+  foot.className = 'supply-foot';
+
+  const st   = String(order.status || 'Ordered');
+  const rank = STATUS_RANK[st] || 1;
+
+  ['Ordered', 'Shipped', 'Delivered'].forEach(function(label) {
+    const b = document.createElement('div');
+    b.className = 'sbadge sbadge-' + label.toLowerCase()
+      + (rank >= STATUS_RANK[label] ? ' active' : '');
+    b.textContent = label === 'Delivered' && rank >= 3 ? '✓ Delivered' : label;
+    if (label === 'Delivered') b.addEventListener('click', e => markDelivered(e, order, b));
+    if (label === 'Delivered') b.addEventListener('touchend', e => { e.preventDefault(); markDelivered(e, order, b); });
+    foot.appendChild(b);
+  });
+
+  // An ETA on an already-delivered order is just noise.
+  if (order.expectedDelivery && st.toLowerCase() !== 'delivered') {
+    const eta = formatDeliveryDate(order.expectedDelivery);
+    if (eta) {
+      const e = document.createElement('span');
+      e.className = 'supply-eta' + (eta.cls ? ' ' + eta.cls : '');
+      e.textContent = eta.label + ' ' + eta.date;
+      foot.appendChild(e);
+    }
+  }
+
+  if (order.url) {
+    const a = document.createElement('a');
+    a.className = 'task-link-btn';
+    a.href = order.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.title = 'View on Amazon';
+    a.innerHTML = '&#x2197;';
+    a.addEventListener('click', e => e.stopPropagation());
+    a.addEventListener('touchend', e => e.stopPropagation());
+    foot.appendChild(a);
+  }
+
+  el.appendChild(foot);
+  return el;
+}
+
+const addSupplyItem = () => {
   openInput('Add Supply Item', 'e.g. Blue nitrile gloves, Box 100ct…', 'Add', val => {
-    DB.supply.push({ id: genId(), text: val, ordered: false, shipped: false, arrived: false });
+    DB.supply.push({ id: genId(), text: val, removed: false, _updatedAt: new Date().toISOString() });
     saveDB(); renderSupply(); showToast('Item added');
   });
-});
+};
+document.getElementById('add-supply-btn').addEventListener('click', addSupplyItem);
 document.getElementById('add-supply-btn').addEventListener('touchend', e => {
-  e.preventDefault();
-  openInput('Add Supply Item', 'e.g. Blue nitrile gloves, Box 100ct…', 'Add', val => {
-    DB.supply.push({ id: genId(), text: val, ordered: false, shipped: false, arrived: false });
-    saveDB(); renderSupply(); showToast('Item added');
-  });
+  e.preventDefault(); addSupplyItem();
 });
+
 
 /* ══════════════════════════════════════════════════════
    ── PROJECT CODES ──
@@ -2186,7 +2142,23 @@ function mkProjCard(item) {
     openProjLightbox(item, freshRenders, freshPref);
   };
   card.addEventListener('click', handleClick);
-  card.addEventListener('touchend', function(e) { e.preventDefault(); handleClick(); });
+  // Touch: fire only on a genuine tap, not when a scroll gesture happens to
+  // lift off over this card. Track finger movement between touchstart and
+  // touchend; if it moved more than a few px (a scroll), do nothing.
+  let _txStart = 0, _tyStart = 0, _tMoved = false;
+  card.addEventListener('touchstart', function(e) {
+    const t = e.touches[0];
+    _txStart = t.clientX; _tyStart = t.clientY; _tMoved = false;
+  }, { passive: true });
+  card.addEventListener('touchmove', function(e) {
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - _txStart) > 10 || Math.abs(t.clientY - _tyStart) > 10) _tMoved = true;
+  }, { passive: true });
+  card.addEventListener('touchend', function(e) {
+    if (_tMoved) return;         // was a scroll — ignore
+    e.preventDefault();          // genuine tap — suppress the synthetic click, fire once
+    handleClick();
+  });
 
   card.append(label, wrap);
   return card;
@@ -2400,79 +2372,41 @@ document.getElementById('add-task-btn').addEventListener('touchend', e => {
   });
 });
 
-/* ── Sync Amazon Orders ─────────────────────────────────────────────────── */
-async function syncAmazonOrders(silent) {
-  var btn = document.getElementById('sync-amzn-btn');
+/* ── Amazon orders ───────────────────────────────────────────────────────────
+   Read the Amazon Orders table (Gmail-fed by the BV Agent Host) and render it.
+   No matching, no writing, no local persistence - the table is the truth and
+   this is just a view of it. ─────────────────────────────────────────────── */
+async function loadAmazonOrders(silent) {
+  const btn = document.getElementById('sync-amzn-btn');
   if (btn) btn.classList.add('syncing');
   try {
-    var items = DB.supply.map(function(s) { return { id: s.id, text: s.text || '', amazonId: s.amazonId || null }; });
-    var resp = await fetch('/api/sync-amazon-orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tasks: items })
-    });
+    const resp = await fetch('/api/supply-orders');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    var data = await resp.json();
-    var changed = 0;
-    (data.matches || []).forEach(function(m) {
-      var item = DB.supply.find(function(s) { return s.id === m.taskId; });
-      if (item) {
-        var st = (m.status || 'ordered').toLowerCase();
-        item.amazonId         = m.amazonId             || item.amazonId    || null;
-        // Status only ever ADVANCES — never regress a flag the user (or a
-        // prior sync) already set. Overwriting arrived/shipped here is what
-        // made a manually "Arrived" item reappear on the next sync whenever
-        // Amazon still reported it as Ordered/Shipped. A real Amazon
-        // "Delivered" still auto-marks arrived (auto-hides); the user's own
-        // Arrived click is now permanent.
-        item.ordered          = true;
-        if (st === 'shipped' || st === 'delivered') item.shipped = true;
-        if (st === 'delivered') item.arrived = true;
-        item.orderUrl         = m.orderUrl        || m.productUrl    || null;
-        item.productUrl       = m.productUrl      || m.orderUrl      || null;
-        item.thumbnailUrl     = m.thumbnailUrl     || item.thumbnailUrl     || null;
-        item.expectedDelivery = m.expectedDelivery || item.expectedDelivery || null;
-        changed++;
-      }
-    });
-    // Auto-create supply items for in-transit Amazon orders with no existing item
-    (data.newItems || []).forEach(function(m) {
-      var st = (m.status || 'ordered').toLowerCase();
-      DB.supply.push({
-        id:               genId(),
-        amazonId:         m.amazonId,
-        text:             m.productName,
-        ordered:          true,
-        shipped:          (st === 'shipped' || st === 'delivered'),
-        arrived:          (st === 'delivered'),
-        removed:          false,
-        orderUrl:         m.orderUrl        || m.productUrl    || null,
-        productUrl:       m.productUrl      || m.orderUrl      || null,
-        thumbnailUrl:     m.thumbnailUrl    || null,
-        expectedDelivery: m.expectedDelivery || null,
-      });
-      changed++;
-    });
-    if (changed) {
-      saveDB(); renderSupply();
-      if (!silent) showToast(changed + ' item' + (changed > 1 ? 's' : '') + ' synced with Amazon');
-    } else {
-      if (!silent) showToast('No new Amazon orders');
+    const data = await resp.json();
+    const before = AMZN_ORDERS.length;
+    AMZN_ORDERS = data.orders || [];
+    renderSupply();
+    if (!silent) {
+      const n = AMZN_ORDERS.length;
+      showToast(n ? n + ' Amazon order' + (n > 1 ? 's' : '') : 'No open Amazon orders');
+    } else if (AMZN_ORDERS.length > before) {
+      showToast((AMZN_ORDERS.length - before) + ' new Amazon order' + (AMZN_ORDERS.length - before > 1 ? 's' : ''));
     }
-  } catch(e) {
-    console.error('Sync Amazon error:', e);
-    showToast('Amazon sync failed');
+  } catch (e) {
+    console.error('Amazon orders load failed:', e);
+    if (!silent) showToast('Could not reach Amazon orders');
   } finally {
     if (btn) btn.classList.remove('syncing');
   }
 }
 
 (function() {
-  var syncBtn = document.getElementById('sync-amzn-btn');
-  if (!syncBtn) return;
-  syncBtn.addEventListener('click', function(e) { e.stopPropagation(); syncAmazonOrders(); });
-  syncBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); syncAmazonOrders(); });
+  var btn = document.getElementById('sync-amzn-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function(e) { e.stopPropagation(); loadAmazonOrders(); });
+  btn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); loadAmazonOrders(); });
 })();
+
 
 /* ══════════════════════════════════════════════════════
    ── NOTICES DRAWING CANVAS ──
@@ -3040,18 +2974,19 @@ requestAnimationFrame(() => {
     }
 
     if (AT_TOKEN) {
-      // ── One-time supply reset (2026-07-16) ──────────────────────────────
-      // A client card-creation bug flooded the board with duplicate
-      // Amazon-order cards, and stale browsers kept re-pushing them back to
-      // Airtable. Drop THIS device's local supply list exactly once so it
-      // can't re-upload stale cards; the pull below repopulates supply fresh
-      // from Airtable (the source of truth). Only supply is touched — tasks,
-      // notices, and project codes are left alone.
+      // ── One-time supply reset (2026-08-20) ──────────────────────────────
+      // Amazon items no longer live in DB.supply at all — they are read live
+      // from the Amazon Orders table. Everything a device still has cached
+      // here is either an old Amazon card (now a duplicate of the feed) or
+      // carrier-email junk from the retired vendor scraper. Drop it once so a
+      // stale browser can't push any of it back; DB.supply now holds only
+      // hand-added needs. Only supply is touched — tasks, notices, and
+      // project codes are left alone.
       try {
-        if (!localStorage.getItem('bv_supply_reset_20260718b')) {
+        if (!localStorage.getItem('bv_supply_reset_20260820_amznfeed')) {
           DB.supply = [];
           localStorage.setItem(STORE_KEY, JSON.stringify(DB));
-          localStorage.setItem('bv_supply_reset_20260718b', '1');
+          localStorage.setItem('bv_supply_reset_20260820_amznfeed', '1');
         }
       } catch(_) {}
 
@@ -3060,8 +2995,7 @@ requestAnimationFrame(() => {
         saveDB();
         renderSupply(); renderProject(); renderTasks(); renderStickies(); redrawObjs();
         setSyncDot('ok');
-        // Run Amazon sync immediately after Airtable pull so thumbnails & product URLs are ready on load
-        syncAmazonOrders(true);
+        loadAmazonOrders(true);
       }).catch(e => {
         setSyncDot('error', e.message);
         console.warn('Airtable pull on load:', e);
@@ -3070,8 +3004,9 @@ requestAnimationFrame(() => {
       // Pull QB Codes from Projects table — populates Project Codes section
       pullProjectCodes().catch(e => console.warn('QB codes pull:', e));
 
-      // Amazon Orders periodic re-sync — every 30 minutes
-      setInterval(function() { syncAmazonOrders(true); }, 30 * 60 * 1000);
+      // Amazon Orders refresh. This is a plain read of one Airtable table now,
+      // so it can run often enough that a new order shows up on its own.
+      setInterval(function() { loadAmazonOrders(true); }, 10 * 60 * 1000);
 
       // Notices screenshot — first upload 3s after load, then every 10 minutes
       setTimeout(uploadNoticesSnapshot, 3000);
