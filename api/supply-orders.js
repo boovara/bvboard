@@ -146,7 +146,7 @@ export default async function handler(req, res) {
     })
     .slice(0, MAX_CARDS);
 
-  // Small, stable payload - the pane re-fetches this every few minutes.
+  // Small, stable payload - read on page load and on the pane's ↻ button.
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ orders });
 }

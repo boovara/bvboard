@@ -1312,8 +1312,9 @@ const AT_TID          = 'tblMcvsvQg5vRgwgG'; // "BV Board" table ID
 const AT_PROJ_TID     = 'tblUul2v9r4QZQj0a'; // "Projects" table — source for QB Codes
 const AT_AMZN_TID     = 'tblvyFpFAmyt5qDDN'; // "Amazon Orders" table
 const AT_URL          = `https://api.airtable.com/v0/${AT_BASE}/${AT_TID}`;
-const AT_SNAPSHOT_REC = 'recXTLodSlq3SPYmC'; // dedicated "Notices Snapshot" record
-const AT_ATTACH_FID   = 'flddFx9yRPR2w20Cx'; // "Attachment" field ID
+// The retired "Notices Snapshot" record still exists in the table; it is only kept here
+// so the sync loop's reserved-record guard never deletes it.
+const AT_SNAPSHOT_REC = 'recXTLodSlq3SPYmC';
 
 // ── Sync dot UI ──────────────────────────────────────────────────────────────
 let _lastSyncErr = '';
@@ -1600,67 +1601,6 @@ async function pullProjectCodes() {
   DB.project.unshift(...qbItems);
   try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(_) {}
   renderProject();
-}
-
-// ── Notices screenshot → Airtable attachment ─────────────────────────────────
-function buildNoticesSnapshot() {
-  const W = inkC.width, H = inkC.height;
-  if (!W || !H) return null;
-  const off = document.createElement('canvas');
-  off.width = W; off.height = H;
-  const ctx = off.getContext('2d');
-
-  // Background
-  ctx.fillStyle = '#0e1014';
-  ctx.fillRect(0, 0, W, H);
-
-  // Ink layer + objects layer
-  ctx.drawImage(inkC, 0, 0);
-  ctx.drawImage(objC, 0, 0);
-
-  // Sticky notes
-  const PAD = 10, SW = 160, RADIUS = 6;
-  DB.notices_stickies.forEach(s => {
-    const lines = (s.text || '').split('\n');
-    const SH = Math.max(72, PAD * 2 + lines.length * 18 + PAD);
-    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
-    ctx.beginPath();
-    ctx.roundRect(s.x, s.y, SW, SH, RADIUS);
-    ctx.fillStyle = s.color || '#f0f0f0';
-    ctx.fill();
-    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-    ctx.fillStyle = 'rgba(0,0,0,.72)';
-    ctx.font = '12px "DM Sans", sans-serif';
-    lines.forEach((ln, i) => ctx.fillText(ln, s.x + PAD, s.y + PAD + 14 + i * 18, SW - PAD * 2));
-  });
-
-  return off;
-}
-
-async function uploadNoticesSnapshot() {
-  if (!AT_TOKEN) return;
-  try {
-    const canvas = buildNoticesSnapshot();
-    if (!canvas) return;
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    const ts = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', 'h') + 'm';
-    const filename = `notices-${ts}.png`;
-
-    // POST raw PNG to serverless proxy — it handles the Airtable content API server-side
-    const res = await fetch('/api/upload-snapshot', {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/png' },
-      body: blob,
-    });
-    if (!res.ok) {
-      const txt = await res.text();
-      console.warn('Notices snapshot upload failed:', res.status, txt);
-    } else {
-      console.log('Notices snapshot uploaded:', filename);
-    }
-  } catch(e) {
-    console.warn('Notices snapshot upload failed:', e);
-  }
 }
 
 // ── Debounced sync timer ─────────────────────────────────────────────────────
@@ -3004,24 +2944,11 @@ requestAnimationFrame(() => {
       // Pull QB Codes from Projects table — populates Project Codes section
       pullProjectCodes().catch(e => console.warn('QB codes pull:', e));
 
-      // Amazon Orders refresh. A plain read of one Airtable table, but this board
-      // runs 24/7 on the shop screen and the workspace has a monthly API-call cap,
-      // so every 30 min (the sync that feeds the table only runs twice a day).
-      setInterval(function() { loadAmazonOrders(true); }, 30 * 60 * 1000);
-
-      // Notices screenshot — first upload 3s after load, then hourly (each upload
-      // is two Airtable calls: clear the attachment, then upload the new one).
-      setTimeout(uploadNoticesSnapshot, 3000);
-      setInterval(uploadNoticesSnapshot, 60 * 60 * 1000);
-
-      // F5 / Ctrl+R — upload snapshot first, then reload
-      document.addEventListener('keydown', async (e) => {
-        const isRefresh = e.key === 'F5' || (e.ctrlKey && e.key.toLowerCase() === 'r');
-        if (!isRefresh) return;
-        e.preventDefault();
-        await uploadNoticesSnapshot();
-        location.reload();
-      });
+      // No background timers. This board runs 24/7 on the shop screen and the
+      // workspace has a monthly Airtable API-call cap; the Amazon Orders feed only
+      // changes when the twice-daily sync runs, so it is read on load and on the
+      // ↻ button. The hourly "Notices Snapshot" upload was removed outright —
+      // nothing read it.
     }
   }, 100);
 });
