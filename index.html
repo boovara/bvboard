@@ -3004,13 +3004,15 @@ requestAnimationFrame(() => {
       // Pull QB Codes from Projects table — populates Project Codes section
       pullProjectCodes().catch(e => console.warn('QB codes pull:', e));
 
-      // Amazon Orders refresh. This is a plain read of one Airtable table now,
-      // so it can run often enough that a new order shows up on its own.
-      setInterval(function() { loadAmazonOrders(true); }, 10 * 60 * 1000);
+      // Amazon Orders refresh. A plain read of one Airtable table, but this board
+      // runs 24/7 on the shop screen and the workspace has a monthly API-call cap,
+      // so every 30 min (the sync that feeds the table only runs twice a day).
+      setInterval(function() { loadAmazonOrders(true); }, 30 * 60 * 1000);
 
-      // Notices screenshot — first upload 3s after load, then every 10 minutes
+      // Notices screenshot — first upload 3s after load, then hourly (each upload
+      // is two Airtable calls: clear the attachment, then upload the new one).
       setTimeout(uploadNoticesSnapshot, 3000);
-      setInterval(uploadNoticesSnapshot, 10 * 60 * 1000);
+      setInterval(uploadNoticesSnapshot, 60 * 60 * 1000);
 
       // F5 / Ctrl+R — upload snapshot first, then reload
       document.addEventListener('keydown', async (e) => {
